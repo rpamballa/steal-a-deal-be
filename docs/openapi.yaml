@@ -1,0 +1,1340 @@
+openapi: 3.0.3
+info:
+  title: StealADeal Backend API
+  version: 0.1.0
+  description: |
+    OpenAPI contract for the current H2-backed development backend.
+    This spec reflects the implemented dealer, vehicle, lead, appointment,
+    and dashboard endpoints.
+servers:
+  - url: http://localhost:8282
+    description: Local development
+tags:
+  - name: Dealers
+  - name: Vehicles
+  - name: Leads
+  - name: Appointments
+  - name: Deals
+  - name: Dashboard
+paths:
+  /api/dealers:
+    get:
+      tags: [Dealers]
+      summary: List dealers
+      operationId: listDealers
+      responses:
+        '200':
+          description: Dealers returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Dealer'
+    post:
+      tags: [Dealers]
+      summary: Create dealer
+      operationId: createDealer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDealerRequest'
+      responses:
+        '201':
+          description: Dealer created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dealer'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/dealers/{dealerId}:
+    get:
+      tags: [Dealers]
+      summary: Get dealer by id
+      operationId: getDealer
+      parameters:
+        - $ref: '#/components/parameters/DealerId'
+      responses:
+        '200':
+          description: Dealer returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dealer'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Dealers]
+      summary: Update dealer details
+      operationId: updateDealer
+      parameters:
+        - $ref: '#/components/parameters/DealerId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDealerRequest'
+      responses:
+        '200':
+          description: Dealer updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dealer'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/dealers/{dealerId}/approval:
+    patch:
+      tags: [Dealers]
+      summary: Update dealer approval status
+      operationId: updateDealerApproval
+      parameters:
+        - $ref: '#/components/parameters/DealerId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDealerApprovalRequest'
+      responses:
+        '200':
+          description: Dealer approval updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dealer'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/vehicles:
+    get:
+      tags: [Vehicles]
+      summary: List vehicles
+      operationId: listVehicles
+      parameters:
+        - in: query
+          name: dealerId
+          schema:
+            type: integer
+            format: int64
+        - in: query
+          name: make
+          schema:
+            type: string
+            default: ""
+        - in: query
+          name: model
+          schema:
+            type: string
+            default: ""
+        - in: query
+          name: minPrice
+          schema:
+            type: number
+            format: double
+            default: 0
+        - in: query
+          name: maxPrice
+          schema:
+            type: number
+            format: double
+            default: 9999999
+        - in: query
+          name: status
+          schema:
+            $ref: '#/components/schemas/VehicleStatus'
+      responses:
+        '200':
+          description: Vehicles returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Vehicle'
+    post:
+      tags: [Vehicles]
+      summary: Create vehicle
+      operationId: createVehicle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateVehicleRequest'
+      responses:
+        '201':
+          description: Vehicle created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vehicle'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/vehicles/{vehicleId}:
+    get:
+      tags: [Vehicles]
+      summary: Get vehicle by id
+      operationId: getVehicle
+      parameters:
+        - $ref: '#/components/parameters/VehicleId'
+      responses:
+        '200':
+          description: Vehicle returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vehicle'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Vehicles]
+      summary: Update vehicle
+      operationId: updateVehicle
+      parameters:
+        - $ref: '#/components/parameters/VehicleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateVehicleRequest'
+      responses:
+        '200':
+          description: Vehicle updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vehicle'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/vehicles/{vehicleId}/leads:
+    post:
+      tags: [Leads]
+      summary: Create lead for vehicle
+      operationId: createLead
+      parameters:
+        - $ref: '#/components/parameters/VehicleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLeadRequest'
+      responses:
+        '201':
+          description: Lead created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lead'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/leads:
+    get:
+      tags: [Leads]
+      summary: List leads
+      operationId: listLeads
+      parameters:
+        - in: query
+          name: vehicleId
+          schema:
+            type: integer
+            format: int64
+        - in: query
+          name: status
+          schema:
+            $ref: '#/components/schemas/LeadStatus'
+      responses:
+        '200':
+          description: Leads returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Lead'
+
+  /api/leads/{leadId}/status:
+    patch:
+      tags: [Leads]
+      summary: Update lead status
+      operationId: updateLeadStatus
+      parameters:
+        - $ref: '#/components/parameters/LeadId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateLeadStatusRequest'
+      responses:
+        '200':
+          description: Lead updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lead'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/vehicles/{vehicleId}/appointments:
+    post:
+      tags: [Appointments]
+      summary: Create appointment for vehicle
+      operationId: createAppointment
+      parameters:
+        - $ref: '#/components/parameters/VehicleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAppointmentRequest'
+      responses:
+        '201':
+          description: Appointment created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Appointment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/appointments:
+    get:
+      tags: [Appointments]
+      summary: List appointments
+      operationId: listAppointments
+      parameters:
+        - in: query
+          name: vehicleId
+          schema:
+            type: integer
+            format: int64
+        - in: query
+          name: status
+          schema:
+            $ref: '#/components/schemas/AppointmentStatus'
+      responses:
+        '200':
+          description: Appointments returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Appointment'
+
+  /api/appointments/{appointmentId}/status:
+    patch:
+      tags: [Appointments]
+      summary: Update appointment status
+      operationId: updateAppointmentStatus
+      parameters:
+        - $ref: '#/components/parameters/AppointmentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAppointmentStatusRequest'
+      responses:
+        '200':
+          description: Appointment updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Appointment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/dashboard:
+    get:
+      tags: [Dashboard]
+      summary: Get dashboard summary
+      operationId: getDashboard
+      responses:
+        '200':
+          description: Dashboard summary returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dashboard'
+
+  /api/deals:
+    get:
+      tags: [Deals]
+      summary: List deals
+      operationId: listDeals
+      parameters:
+        - in: query
+          name: vehicleId
+          schema:
+            type: integer
+            format: int64
+        - in: query
+          name: stage
+          schema:
+            $ref: '#/components/schemas/DealStage'
+      responses:
+        '200':
+          description: Deals returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Deal'
+    post:
+      tags: [Deals]
+      summary: Create a new deal
+      operationId: createDeal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDealRequest'
+      responses:
+        '201':
+          description: Deal created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deal'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/deals/{dealId}:
+    get:
+      tags: [Deals]
+      summary: Get deal by id
+      operationId: getDeal
+      parameters:
+        - $ref: '#/components/parameters/DealId'
+      responses:
+        '200':
+          description: Deal returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deal'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/deals/{dealId}/stage:
+    patch:
+      tags: [Deals]
+      summary: Update deal stage
+      operationId: updateDealStage
+      parameters:
+        - $ref: '#/components/parameters/DealId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDealStageRequest'
+      responses:
+        '200':
+          description: Deal updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deal'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/deals/{dealId}/deposit:
+    post:
+      tags: [Deals]
+      summary: Simulate deposit payment
+      operationId: payDealDeposit
+      parameters:
+        - $ref: '#/components/parameters/DealId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PayDepositRequest'
+      responses:
+        '200':
+          description: Deposit recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deal'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/deals/{dealId}/documents:
+    get:
+      tags: [Deals]
+      summary: List deal documents
+      operationId: listDealDocuments
+      parameters:
+        - $ref: '#/components/parameters/DealId'
+        - in: query
+          name: status
+          schema:
+            $ref: '#/components/schemas/DocumentStatus'
+      responses:
+        '200':
+          description: Deal documents returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DealDocument'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Deals]
+      summary: Upload or register a deal document
+      operationId: createDealDocument
+      parameters:
+        - $ref: '#/components/parameters/DealId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDealDocumentRequest'
+      responses:
+        '201':
+          description: Document created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DealDocument'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/deals/{dealId}/documents/{documentId}/status:
+    patch:
+      tags: [Deals]
+      summary: Update deal document status
+      operationId: updateDealDocumentStatus
+      parameters:
+        - $ref: '#/components/parameters/DealId'
+        - $ref: '#/components/parameters/DocumentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDealDocumentStatusRequest'
+      responses:
+        '200':
+          description: Document updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DealDocument'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/deals/{dealId}/fulfillment:
+    patch:
+      tags: [Deals]
+      summary: Schedule or update fulfillment for a deal
+      operationId: updateDealFulfillment
+      parameters:
+        - $ref: '#/components/parameters/DealId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateFulfillmentRequest'
+      responses:
+        '200':
+          description: Fulfillment updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deal'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/deals/{dealId}/activity:
+    get:
+      tags: [Deals]
+      summary: List deal activity timeline
+      operationId: listDealActivity
+      parameters:
+        - $ref: '#/components/parameters/DealId'
+      responses:
+        '200':
+          description: Deal activity returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DealActivity'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/deals/{dealId}/readiness:
+    get:
+      tags: [Deals]
+      summary: Get computed readiness and blockers for a deal
+      operationId: getDealReadiness
+      parameters:
+        - $ref: '#/components/parameters/DealId'
+      responses:
+        '200':
+          description: Deal readiness returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DealReadiness'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  parameters:
+    DealerId:
+      in: path
+      name: dealerId
+      required: true
+      schema:
+        type: integer
+        format: int64
+    VehicleId:
+      in: path
+      name: vehicleId
+      required: true
+      schema:
+        type: integer
+        format: int64
+    LeadId:
+      in: path
+      name: leadId
+      required: true
+      schema:
+        type: integer
+        format: int64
+    AppointmentId:
+      in: path
+      name: appointmentId
+      required: true
+      schema:
+        type: integer
+        format: int64
+    DealId:
+      in: path
+      name: dealId
+      required: true
+      schema:
+        type: integer
+        format: int64
+    DocumentId:
+      in: path
+      name: documentId
+      required: true
+      schema:
+        type: integer
+        format: int64
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    Dealer:
+      type: object
+      required: [id, name, licenseNumber, city, state, approved]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        licenseNumber:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        approved:
+          type: boolean
+
+    CreateDealerRequest:
+      type: object
+      required: [name, licenseNumber, city, state]
+      properties:
+        name:
+          type: string
+        licenseNumber:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+          pattern: '^[A-Za-z]{2}$'
+
+    UpdateDealerRequest:
+      allOf:
+        - $ref: '#/components/schemas/CreateDealerRequest'
+
+    UpdateDealerApprovalRequest:
+      type: object
+      required: [approved]
+      properties:
+        approved:
+          type: boolean
+
+    Vehicle:
+      type: object
+      required:
+        - id
+        - dealerId
+        - dealerName
+        - vin
+        - modelYear
+        - make
+        - model
+        - trim
+        - primaryImageUrl
+        - imageUrls
+        - mileage
+        - price
+        - status
+      properties:
+        id:
+          type: integer
+          format: int64
+        dealerId:
+          type: integer
+          format: int64
+        dealerName:
+          type: string
+        vin:
+          type: string
+        modelYear:
+          type: integer
+        make:
+          type: string
+        model:
+          type: string
+        trim:
+          type: string
+        primaryImageUrl:
+          type: string
+          format: uri
+        imageUrls:
+          type: array
+          items:
+            type: string
+            format: uri
+        mileage:
+          type: integer
+        price:
+          type: number
+          format: double
+        status:
+          $ref: '#/components/schemas/VehicleStatus'
+
+    CreateVehicleRequest:
+      type: object
+      required:
+        - dealerId
+        - vin
+        - modelYear
+        - make
+        - model
+        - trim
+        - imageUrls
+        - mileage
+        - price
+        - status
+      properties:
+        dealerId:
+          type: integer
+          format: int64
+        vin:
+          type: string
+          pattern: '^[A-HJ-NPR-Z0-9]{17}$'
+        modelYear:
+          type: integer
+          minimum: 1990
+        make:
+          type: string
+        model:
+          type: string
+        trim:
+          type: string
+        imageUrls:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            format: uri
+        mileage:
+          type: integer
+          minimum: 0
+        price:
+          type: number
+          format: double
+          minimum: 0
+        status:
+          $ref: '#/components/schemas/VehicleStatus'
+
+    Lead:
+      type: object
+      required:
+        - id
+        - vehicleId
+        - buyerName
+        - buyerEmail
+        - buyerPhone
+        - message
+        - status
+        - createdAt
+      properties:
+        id:
+          type: integer
+          format: int64
+        vehicleId:
+          type: integer
+          format: int64
+        buyerName:
+          type: string
+        buyerEmail:
+          type: string
+          format: email
+        buyerPhone:
+          type: string
+        message:
+          type: string
+        status:
+          $ref: '#/components/schemas/LeadStatus'
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateLeadRequest:
+      type: object
+      required: [buyerName, buyerEmail, buyerPhone, message]
+      properties:
+        buyerName:
+          type: string
+        buyerEmail:
+          type: string
+          format: email
+        buyerPhone:
+          type: string
+        message:
+          type: string
+
+    UpdateLeadStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/LeadStatus'
+
+    Appointment:
+      type: object
+      required:
+        - id
+        - vehicleId
+        - buyerName
+        - buyerEmail
+        - type
+        - status
+        - scheduledAt
+        - createdAt
+      properties:
+        id:
+          type: integer
+          format: int64
+        vehicleId:
+          type: integer
+          format: int64
+        buyerName:
+          type: string
+        buyerEmail:
+          type: string
+          format: email
+        type:
+          $ref: '#/components/schemas/AppointmentType'
+        status:
+          $ref: '#/components/schemas/AppointmentStatus'
+        scheduledAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateAppointmentRequest:
+      type: object
+      required: [buyerName, buyerEmail, type, scheduledAt]
+      properties:
+        buyerName:
+          type: string
+        buyerEmail:
+          type: string
+          format: email
+        type:
+          $ref: '#/components/schemas/AppointmentType'
+        scheduledAt:
+          type: string
+          format: date-time
+
+    UpdateAppointmentStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/AppointmentStatus'
+
+    Dashboard:
+      type: object
+      required:
+        - dealerCount
+        - vehicleCount
+        - liveVehicleCount
+        - newLeadCount
+        - requestedAppointmentCount
+      properties:
+        dealerCount:
+          type: integer
+          format: int64
+        vehicleCount:
+          type: integer
+          format: int64
+        liveVehicleCount:
+          type: integer
+          format: int64
+        newLeadCount:
+          type: integer
+          format: int64
+        requestedAppointmentCount:
+          type: integer
+          format: int64
+
+    Deal:
+      type: object
+      required:
+        - id
+        - vehicleId
+        - vehicleTitle
+        - buyerName
+        - buyerEmail
+        - buyerPhone
+        - buyerAddressLine1
+        - buyerCity
+        - buyerState
+        - buyerPostalCode
+        - fulfillmentType
+        - tradeIn
+        - tradeInOffer
+        - vehiclePrice
+        - taxAmount
+        - registrationFee
+        - documentationFee
+        - deliveryFee
+        - discountAmount
+        - depositAmount
+        - depositPaid
+        - totalAmount
+        - stage
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: integer
+          format: int64
+        vehicleId:
+          type: integer
+          format: int64
+        vehicleTitle:
+          type: string
+        buyerName:
+          type: string
+        buyerEmail:
+          type: string
+          format: email
+        buyerPhone:
+          type: string
+        buyerAddressLine1:
+          type: string
+        buyerAddressLine2:
+          type: string
+          nullable: true
+        buyerCity:
+          type: string
+        buyerState:
+          type: string
+        buyerPostalCode:
+          type: string
+        fulfillmentType:
+          $ref: '#/components/schemas/FulfillmentType'
+        fulfillmentStatus:
+          $ref: '#/components/schemas/FulfillmentStatus'
+        fulfillmentScheduledAt:
+          type: string
+          format: date-time
+          nullable: true
+        fulfillmentLocation:
+          type: string
+          nullable: true
+        fulfillmentNotes:
+          type: string
+          nullable: true
+        tradeIn:
+          type: boolean
+        tradeInVin:
+          type: string
+          nullable: true
+        tradeInMileage:
+          type: integer
+          nullable: true
+        tradeInOffer:
+          type: number
+          format: double
+        vehiclePrice:
+          type: number
+          format: double
+        taxAmount:
+          type: number
+          format: double
+        registrationFee:
+          type: number
+          format: double
+        documentationFee:
+          type: number
+          format: double
+        deliveryFee:
+          type: number
+          format: double
+        discountAmount:
+          type: number
+          format: double
+        depositAmount:
+          type: number
+          format: double
+        depositPaid:
+          type: boolean
+        totalAmount:
+          type: number
+          format: double
+        stage:
+          $ref: '#/components/schemas/DealStage'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateDealRequest:
+      type: object
+      required:
+        - vehicleId
+        - buyerName
+        - buyerEmail
+        - buyerPhone
+        - buyerAddressLine1
+        - buyerCity
+        - buyerState
+        - buyerPostalCode
+        - fulfillmentType
+        - tradeIn
+        - tradeInOffer
+        - deliveryFee
+        - discountAmount
+      properties:
+        vehicleId:
+          type: integer
+          format: int64
+        buyerName:
+          type: string
+        buyerEmail:
+          type: string
+          format: email
+        buyerPhone:
+          type: string
+        buyerAddressLine1:
+          type: string
+        buyerAddressLine2:
+          type: string
+          nullable: true
+        buyerCity:
+          type: string
+        buyerState:
+          type: string
+          pattern: '^[A-Za-z]{2}$'
+        buyerPostalCode:
+          type: string
+          pattern: '^[0-9]{5}(-[0-9]{4})?$'
+        fulfillmentType:
+          $ref: '#/components/schemas/FulfillmentType'
+        tradeIn:
+          type: boolean
+        tradeInVin:
+          type: string
+          pattern: '^[A-HJ-NPR-Z0-9]{17}$'
+          nullable: true
+        tradeInMileage:
+          type: integer
+          minimum: 0
+          nullable: true
+        tradeInOffer:
+          type: number
+          format: double
+          minimum: 0
+        deliveryFee:
+          type: number
+          format: double
+          minimum: 0
+        discountAmount:
+          type: number
+          format: double
+          minimum: 0
+
+    UpdateDealStageRequest:
+      type: object
+      required: [stage]
+      properties:
+        stage:
+          $ref: '#/components/schemas/DealStage'
+
+    PayDepositRequest:
+      type: object
+      required: [amount]
+      properties:
+        amount:
+          type: number
+          format: double
+          minimum: 0
+
+    DealDocument:
+      type: object
+      required:
+        - id
+        - dealId
+        - type
+        - status
+        - fileName
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: integer
+          format: int64
+        dealId:
+          type: integer
+          format: int64
+        type:
+          $ref: '#/components/schemas/DocumentType'
+        status:
+          $ref: '#/components/schemas/DocumentStatus'
+        fileName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateDealDocumentRequest:
+      type: object
+      required: [type, fileName]
+      properties:
+        type:
+          $ref: '#/components/schemas/DocumentType'
+        fileName:
+          type: string
+
+    UpdateDealDocumentStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/DocumentStatus'
+
+    UpdateFulfillmentRequest:
+      type: object
+      required: [status, scheduledAt, location]
+      properties:
+        status:
+          $ref: '#/components/schemas/FulfillmentStatus'
+        scheduledAt:
+          type: string
+          format: date-time
+        location:
+          type: string
+        notes:
+          type: string
+
+    DealActivity:
+      type: object
+      required: [id, dealId, eventType, message, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        dealId:
+          type: integer
+          format: int64
+        eventType:
+          type: string
+        message:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    DealReadiness:
+      type: object
+      required: [dealId, readyForHandoff, readyForCompletion, completed, blockers]
+      properties:
+        dealId:
+          type: integer
+          format: int64
+        readyForHandoff:
+          type: boolean
+        readyForCompletion:
+          type: boolean
+        completed:
+          type: boolean
+        blockers:
+          type: array
+          items:
+            type: string
+
+    ErrorResponse:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+
+    VehicleStatus:
+      type: string
+      enum:
+        - DRAFT
+        - LIVE
+        - RESERVED
+        - SOLD
+
+    LeadStatus:
+      type: string
+      enum:
+        - NEW
+        - CONTACTED
+        - QUALIFIED
+        - CLOSED
+
+    AppointmentType:
+      type: string
+      enum:
+        - TEST_DRIVE
+        - HOME_DELIVERY
+
+    AppointmentStatus:
+      type: string
+      enum:
+        - REQUESTED
+        - CONFIRMED
+        - COMPLETED
+        - CANCELED
+
+    FulfillmentType:
+      type: string
+      enum:
+        - PICKUP
+        - HOME_DELIVERY
+
+    DealStage:
+      type: string
+      enum:
+        - INITIATED
+        - OFFER_SENT
+        - BUYER_CONFIRMED
+        - DEPOSIT_PAID
+        - DOCUMENTS_PENDING
+        - READY_FOR_HANDOFF
+        - COMPLETED
+        - CANCELED
+
+    DocumentType:
+      type: string
+      enum:
+        - BUYER_AGREEMENT
+        - DRIVER_LICENSE
+        - INSURANCE_PROOF
+        - TITLE_DISCLOSURE
+
+    DocumentStatus:
+      type: string
+      enum:
+        - REQUESTED
+        - UPLOADED
+        - APPROVED
+        - REJECTED
+
+    FulfillmentStatus:
+      type: string
+      enum:
+        - UNSCHEDULED
+        - SCHEDULED
+        - READY
+        - COMPLETED
+        - CANCELED
