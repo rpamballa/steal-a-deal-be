@@ -10,4 +10,8 @@ public interface DealRepository extends JpaRepository<Deal, Long> {
     List<Deal> findByStage(DealStage stage);
 
     List<Deal> findByVehicleId(Long vehicleId);
+
+    List<Deal> findByBuyerEmailOrderByUpdatedAtDesc(String buyerEmail);
+
+    List<Deal> findByVehicleDealerIdOrderByUpdatedAtDesc(Long dealerId);
 }

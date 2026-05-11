@@ -3,15 +3,11 @@ package com.stealadeal.web;
 import com.stealadeal.domain.Appointment;
 import com.stealadeal.domain.AppointmentStatus;
 import com.stealadeal.domain.AppointmentType;
-import com.stealadeal.domain.Dealer;
 import com.stealadeal.domain.Lead;
 import com.stealadeal.domain.LeadStatus;
 import com.stealadeal.domain.Vehicle;
 import com.stealadeal.domain.VehicleStatus;
-import com.stealadeal.repository.AppointmentRepository;
-import com.stealadeal.repository.DealerRepository;
-import com.stealadeal.repository.LeadRepository;
-import com.stealadeal.repository.VehicleRepository;
+import com.stealadeal.service.InventoryService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Email;
@@ -21,9 +17,10 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
-import java.util.Arrays;
 import java.util.List;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -35,28 +32,17 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api")
 @Validated
 public class VehicleController {
 
-    private final DealerRepository dealerRepository;
-    private final VehicleRepository vehicleRepository;
-    private final LeadRepository leadRepository;
-    private final AppointmentRepository appointmentRepository;
+    private final InventoryService inventoryService;
 
-    public VehicleController(
-            DealerRepository dealerRepository,
-            VehicleRepository vehicleRepository,
-            LeadRepository leadRepository,
-            AppointmentRepository appointmentRepository
-    ) {
-        this.dealerRepository = dealerRepository;
-        this.vehicleRepository = vehicleRepository;
-        this.leadRepository = leadRepository;
-        this.appointmentRepository = appointmentRepository;
+    public VehicleController(InventoryService inventoryService) {
+        this.inventoryService = inventoryService;
     }
 
     @GetMapping("/vehicles")
@@ -68,78 +54,119 @@ public class VehicleController {
             @RequestParam(defaultValue = "9999999") BigDecimal maxPrice,
             @RequestParam(required = false) VehicleStatus status
     ) {
-        List<VehicleStatus> statuses = status == null ? Arrays.asList(VehicleStatus.values()) : List.of(status);
-        List<Vehicle> vehicles = dealerId == null
-                ? vehicleRepository.findByStatusInAndMakeContainingIgnoreCaseAndModelContainingIgnoreCaseAndPriceBetween(
-                        statuses, make, model, minPrice, maxPrice)
-                : vehicleRepository.findByStatusInAndDealerIdAndMakeContainingIgnoreCaseAndModelContainingIgnoreCaseAndPriceBetween(
-                        statuses, dealerId, make, model, minPrice, maxPrice);
-        return vehicles.stream().map(VehicleResponse::from).toList();
+        return inventoryService.getVehicles(dealerId, make, model, minPrice, maxPrice, status)
+                .stream()
+                .map(VehicleResponse::from)
+                .toList();
     }
 
     @GetMapping("/vehicles/{vehicleId}")
     public VehicleResponse getVehicle(@PathVariable Long vehicleId) {
-        Vehicle vehicle = findVehicle(vehicleId);
-        return VehicleResponse.from(vehicle);
+        return VehicleResponse.from(inventoryService.getVehicle(vehicleId));
+    }
+
+    @GetMapping("/dealers/{dealerId}/inventory")
+    @PreAuthorize("@accessControl.canAccessDealer(authentication, #dealerId)")
+    public List<VehicleResponse> getDealerInventory(@PathVariable Long dealerId) {
+        return inventoryService.getDealerInventory(dealerId).stream().map(VehicleResponse::from).toList();
     }
 
     @PostMapping("/vehicles")
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("@accessControl.canAccessDealer(authentication, #request.dealerId)")
     public VehicleResponse createVehicle(@Valid @RequestBody CreateVehicleRequest request) {
-        Dealer dealer = findApprovedDealer(request.dealerId());
-        Vehicle vehicle = new Vehicle();
-        applyVehicleRequest(vehicle, request, dealer);
-        return VehicleResponse.from(vehicleRepository.save(vehicle));
+        return VehicleResponse.from(inventoryService.createVehicle(
+                request.dealerId(),
+                request.vin(),
+                request.modelYear(),
+                request.make(),
+                request.model(),
+                request.trim(),
+                request.imageUrls(),
+                request.mileage(),
+                request.price(),
+                request.status()
+        ));
+    }
+
+    @PostMapping("/dealers/{dealerId}/inventory-upload")
+    @PreAuthorize("@accessControl.canAccessDealer(authentication, #dealerId)")
+    public InventoryUploadResponse uploadInventory(
+            @PathVariable Long dealerId,
+            @Valid @RequestBody InventoryUploadRequest request
+    ) {
+        return InventoryUploadResponse.from(inventoryService.uploadInventory(
+                dealerId,
+                request.mode(),
+                request.vehicles().stream()
+                        .map(vehicle -> new InventoryService.InventoryUploadVehicle(
+                                vehicle.vin(),
+                                vehicle.modelYear(),
+                                vehicle.make(),
+                                vehicle.model(),
+                                vehicle.trim(),
+                                vehicle.imageUrls(),
+                                vehicle.mileage(),
+                                vehicle.price(),
+                                vehicle.status()
+                        ))
+                        .toList()
+        ));
+    }
+
+    @PostMapping(value = "/dealers/{dealerId}/inventory-upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("@accessControl.canAccessDealer(authentication, #dealerId)")
+    public InventoryUploadResponse uploadInventoryCsv(
+            @PathVariable Long dealerId,
+            @RequestParam InventoryService.InventoryUploadMode mode,
+            @RequestParam("file") MultipartFile file
+    ) {
+        return InventoryUploadResponse.from(inventoryService.uploadInventoryCsv(dealerId, mode, file));
     }
 
     @PutMapping("/vehicles/{vehicleId}")
+    @PreAuthorize("@accessControl.canAccessDealer(authentication, #request.dealerId)")
     public VehicleResponse updateVehicle(@PathVariable Long vehicleId, @Valid @RequestBody CreateVehicleRequest request) {
-        Vehicle vehicle = findVehicle(vehicleId);
-        Dealer dealer = findApprovedDealer(request.dealerId());
-        applyVehicleRequest(vehicle, request, dealer);
-        return VehicleResponse.from(vehicleRepository.save(vehicle));
+        return VehicleResponse.from(inventoryService.updateVehicle(
+                vehicleId,
+                request.dealerId(),
+                request.vin(),
+                request.modelYear(),
+                request.make(),
+                request.model(),
+                request.trim(),
+                request.imageUrls(),
+                request.mileage(),
+                request.price(),
+                request.status()
+        ));
     }
 
     @PostMapping("/vehicles/{vehicleId}/leads")
     @ResponseStatus(HttpStatus.CREATED)
     public LeadResponse createLead(@PathVariable Long vehicleId, @Valid @RequestBody CreateLeadRequest request) {
-        Vehicle vehicle = findVehicle(vehicleId);
-
-        Lead lead = new Lead();
-        lead.setVehicle(vehicle);
-        lead.setBuyerName(request.buyerName());
-        lead.setBuyerEmail(request.buyerEmail());
-        lead.setBuyerPhone(request.buyerPhone());
-        lead.setMessage(request.message());
-        lead.setStatus(LeadStatus.NEW);
-        lead.setCreatedAt(OffsetDateTime.now());
-        return LeadResponse.from(leadRepository.save(lead));
+        return LeadResponse.from(inventoryService.createLead(
+                vehicleId,
+                request.buyerName(),
+                request.buyerEmail(),
+                request.buyerPhone(),
+                request.message()
+        ));
     }
 
     @GetMapping("/leads")
+    @PreAuthorize("@accessControl.isAuthenticated(authentication)")
     public List<LeadResponse> getLeads(
             @RequestParam(required = false) Long vehicleId,
             @RequestParam(required = false) LeadStatus status
     ) {
-        List<Lead> leads;
-        if (vehicleId != null && status != null) {
-            leads = leadRepository.findByStatusAndVehicleId(status, vehicleId);
-        } else if (vehicleId != null) {
-            leads = leadRepository.findByVehicleId(vehicleId);
-        } else if (status != null) {
-            leads = leadRepository.findByStatus(status);
-        } else {
-            leads = leadRepository.findAll();
-        }
-        return leads.stream().map(LeadResponse::from).toList();
+        return inventoryService.getLeads(vehicleId, status).stream().map(LeadResponse::from).toList();
     }
 
     @PatchMapping("/leads/{leadId}/status")
+    @PreAuthorize("@accessControl.isAuthenticated(authentication)")
     public LeadResponse updateLeadStatus(@PathVariable Long leadId, @Valid @RequestBody UpdateLeadStatusRequest request) {
-        Lead lead = leadRepository.findById(leadId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Lead not found"));
-        lead.setStatus(request.status());
-        return LeadResponse.from(leadRepository.save(lead));
+        return LeadResponse.from(inventoryService.updateLeadStatus(leadId, request.status()));
     }
 
     @PostMapping("/vehicles/{vehicleId}/appointments")
@@ -148,85 +175,44 @@ public class VehicleController {
             @PathVariable Long vehicleId,
             @Valid @RequestBody CreateAppointmentRequest request
     ) {
-        Vehicle vehicle = findVehicle(vehicleId);
-
-        Appointment appointment = new Appointment();
-        appointment.setVehicle(vehicle);
-        appointment.setBuyerName(request.buyerName());
-        appointment.setBuyerEmail(request.buyerEmail());
-        appointment.setType(request.type());
-        appointment.setStatus(AppointmentStatus.REQUESTED);
-        appointment.setScheduledAt(request.scheduledAt());
-        appointment.setCreatedAt(OffsetDateTime.now());
-        return AppointmentResponse.from(appointmentRepository.save(appointment));
+        return AppointmentResponse.from(inventoryService.createAppointment(
+                vehicleId,
+                request.buyerName(),
+                request.buyerEmail(),
+                request.type(),
+                request.scheduledAt()
+        ));
     }
 
     @GetMapping("/appointments")
+    @PreAuthorize("@accessControl.isAuthenticated(authentication)")
     public List<AppointmentResponse> getAppointments(
             @RequestParam(required = false) Long vehicleId,
             @RequestParam(required = false) AppointmentStatus status
     ) {
-        List<Appointment> appointments;
-        if (vehicleId != null && status != null) {
-            appointments = appointmentRepository.findByStatusAndVehicleId(status, vehicleId);
-        } else if (vehicleId != null) {
-            appointments = appointmentRepository.findByVehicleId(vehicleId);
-        } else if (status != null) {
-            appointments = appointmentRepository.findByStatus(status);
-        } else {
-            appointments = appointmentRepository.findAll();
-        }
-        return appointments.stream().map(AppointmentResponse::from).toList();
+        return inventoryService.getAppointments(vehicleId, status).stream().map(AppointmentResponse::from).toList();
     }
 
     @PatchMapping("/appointments/{appointmentId}/status")
+    @PreAuthorize("@accessControl.isAuthenticated(authentication)")
     public AppointmentResponse updateAppointmentStatus(
             @PathVariable Long appointmentId,
             @Valid @RequestBody UpdateAppointmentStatusRequest request
     ) {
-        Appointment appointment = appointmentRepository.findById(appointmentId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Appointment not found"));
-        appointment.setStatus(request.status());
-        return AppointmentResponse.from(appointmentRepository.save(appointment));
+        return AppointmentResponse.from(inventoryService.updateAppointmentStatus(appointmentId, request.status()));
     }
 
     @GetMapping("/dashboard")
+    @PreAuthorize("@accessControl.isAuthenticated(authentication)")
     public DashboardResponse getDashboard() {
-        long dealerCount = dealerRepository.count();
-        long vehicleCount = vehicleRepository.count();
-        long liveVehicleCount = vehicleRepository.findByStatusInAndMakeContainingIgnoreCaseAndModelContainingIgnoreCaseAndPriceBetween(
-                List.of(VehicleStatus.LIVE), "", "", BigDecimal.ZERO, new BigDecimal("9999999")
-        ).size();
-        long newLeadCount = leadRepository.findByStatus(LeadStatus.NEW).size();
-        long requestedAppointmentCount = appointmentRepository.findByStatus(AppointmentStatus.REQUESTED).size();
-        return new DashboardResponse(dealerCount, vehicleCount, liveVehicleCount, newLeadCount, requestedAppointmentCount);
-    }
-
-    private Dealer findApprovedDealer(Long dealerId) {
-        Dealer dealer = dealerRepository.findById(dealerId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Dealer not found"));
-        if (!dealer.isApproved()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Dealer must be approved before publishing inventory");
-        }
-        return dealer;
-    }
-
-    private Vehicle findVehicle(Long vehicleId) {
-        return vehicleRepository.findById(vehicleId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Vehicle not found"));
-    }
-
-    private void applyVehicleRequest(Vehicle vehicle, CreateVehicleRequest request, Dealer dealer) {
-        vehicle.setDealer(dealer);
-        vehicle.setVin(request.vin().toUpperCase());
-        vehicle.setModelYear(request.modelYear());
-        vehicle.setMake(request.make());
-        vehicle.setModel(request.model());
-        vehicle.setTrim(request.trim());
-        vehicle.setImageUrls(request.imageUrls());
-        vehicle.setMileage(request.mileage());
-        vehicle.setPrice(request.price());
-        vehicle.setStatus(request.status());
+        InventoryService.DashboardMetrics metrics = inventoryService.getDashboardMetrics();
+        return new DashboardResponse(
+                metrics.dealerCount(),
+                metrics.vehicleCount(),
+                metrics.liveVehicleCount(),
+                metrics.newLeadCount(),
+                metrics.requestedAppointmentCount()
+        );
     }
 
     public record CreateVehicleRequest(
@@ -239,6 +225,25 @@ public class VehicleController {
             @NotNull List<@NotBlank String> imageUrls,
             @Min(0) int mileage,
             @DecimalMin("0.0") BigDecimal price,
+            @NotNull VehicleStatus status
+    ) {
+    }
+
+    public record InventoryUploadRequest(
+            @NotNull InventoryService.InventoryUploadMode mode,
+            @NotNull List<@Valid InventoryUploadVehicleRequest> vehicles
+    ) {
+    }
+
+    public record InventoryUploadVehicleRequest(
+            @NotBlank @Pattern(regexp = "^[A-HJ-NPR-Z0-9]{17}$") String vin,
+            @Min(1990) int modelYear,
+            @NotBlank String make,
+            @NotBlank String model,
+            @NotBlank String trim,
+            @NotNull List<@NotBlank String> imageUrls,
+            @Min(0) int mileage,
+            @NotNull @DecimalMin("0.0") BigDecimal price,
             @NotNull VehicleStatus status
     ) {
     }
@@ -274,6 +279,50 @@ public class VehicleController {
                     vehicle.getMileage(),
                     vehicle.getPrice(),
                     vehicle.getStatus()
+            );
+        }
+    }
+
+    public record InventoryUploadResponse(
+            Long dealerId,
+            String dealerName,
+            InventoryService.InventoryUploadMode mode,
+            int totalRows,
+            int createdCount,
+            int updatedCount,
+            int rejectedCount,
+            List<InventoryUploadRowResponse> rows
+    ) {
+
+        static InventoryUploadResponse from(InventoryService.InventoryUploadResult result) {
+            return new InventoryUploadResponse(
+                    result.dealerId(),
+                    result.dealerName(),
+                    result.mode(),
+                    result.totalRows(),
+                    result.createdCount(),
+                    result.updatedCount(),
+                    result.rejectedCount(),
+                    result.rows().stream().map(InventoryUploadRowResponse::from).toList()
+            );
+        }
+    }
+
+    public record InventoryUploadRowResponse(
+            int rowNumber,
+            String vin,
+            InventoryService.InventoryUploadRowStatus status,
+            Long vehicleId,
+            String message
+    ) {
+
+        static InventoryUploadRowResponse from(InventoryService.InventoryUploadRowResult row) {
+            return new InventoryUploadRowResponse(
+                    row.rowNumber(),
+                    row.vin(),
+                    row.status(),
+                    row.vehicleId(),
+                    row.message()
             );
         }
     }

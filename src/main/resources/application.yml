@@ -16,3 +16,9 @@ server:
   port: 8282
   error:
     include-message: always
+
+app:
+  auth:
+    bootstrap-admin-email: admin@stealadeal.local
+    bootstrap-admin-password: Admin123!
+    token-ttl-hours: 24

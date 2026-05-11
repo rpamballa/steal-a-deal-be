@@ -1,0 +1,540 @@
+package com.stealadeal.service;
+
+import com.stealadeal.domain.Appointment;
+import com.stealadeal.domain.AppointmentStatus;
+import com.stealadeal.domain.AppointmentType;
+import com.stealadeal.domain.Dealer;
+import com.stealadeal.domain.Lead;
+import com.stealadeal.domain.LeadStatus;
+import com.stealadeal.domain.Vehicle;
+import com.stealadeal.domain.VehicleStatus;
+import com.stealadeal.repository.AppointmentRepository;
+import com.stealadeal.repository.DealerRepository;
+import com.stealadeal.repository.LeadRepository;
+import com.stealadeal.repository.VehicleRepository;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVParser;
+import org.apache.commons.csv.CSVRecord;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
+
+@Service
+@Transactional
+public class InventoryService {
+
+    public record DashboardMetrics(
+            long dealerCount,
+            long vehicleCount,
+            long liveVehicleCount,
+            long newLeadCount,
+            long requestedAppointmentCount
+    ) {
+    }
+
+    public enum InventoryUploadMode {
+        CREATE_ONLY,
+        UPSERT
+    }
+
+    public enum InventoryUploadRowStatus {
+        CREATED,
+        UPDATED,
+        REJECTED
+    }
+
+    public record InventoryUploadVehicle(
+            String vin,
+            int modelYear,
+            String make,
+            String model,
+            String trim,
+            List<String> imageUrls,
+            int mileage,
+            BigDecimal price,
+            VehicleStatus status
+    ) {
+    }
+
+    public record InventoryUploadRowResult(
+            int rowNumber,
+            String vin,
+            InventoryUploadRowStatus status,
+            Long vehicleId,
+            String message
+    ) {
+    }
+
+    public record InventoryUploadResult(
+            Long dealerId,
+            String dealerName,
+            InventoryUploadMode mode,
+            int totalRows,
+            int createdCount,
+            int updatedCount,
+            int rejectedCount,
+            List<InventoryUploadRowResult> rows
+    ) {
+    }
+
+    private final DealerRepository dealerRepository;
+    private final VehicleRepository vehicleRepository;
+    private final LeadRepository leadRepository;
+    private final AppointmentRepository appointmentRepository;
+
+    public InventoryService(
+            DealerRepository dealerRepository,
+            VehicleRepository vehicleRepository,
+            LeadRepository leadRepository,
+            AppointmentRepository appointmentRepository
+    ) {
+        this.dealerRepository = dealerRepository;
+        this.vehicleRepository = vehicleRepository;
+        this.leadRepository = leadRepository;
+        this.appointmentRepository = appointmentRepository;
+    }
+
+    @Transactional(readOnly = true)
+    public List<Vehicle> getVehicles(Long dealerId, String make, String model, BigDecimal minPrice, BigDecimal maxPrice, VehicleStatus status) {
+        List<VehicleStatus> statuses = status == null ? Arrays.asList(VehicleStatus.values()) : List.of(status);
+        return dealerId == null
+                ? vehicleRepository.findByStatusInAndMakeContainingIgnoreCaseAndModelContainingIgnoreCaseAndPriceBetween(
+                statuses, make, model, minPrice, maxPrice)
+                : vehicleRepository.findByStatusInAndDealerIdAndMakeContainingIgnoreCaseAndModelContainingIgnoreCaseAndPriceBetween(
+                statuses, dealerId, make, model, minPrice, maxPrice);
+    }
+
+    @Transactional(readOnly = true)
+    public Vehicle getVehicle(Long vehicleId) {
+        return findVehicle(vehicleId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Vehicle> getDealerInventory(Long dealerId) {
+        findDealer(dealerId);
+        return vehicleRepository.findByDealerIdOrderByIdDesc(dealerId);
+    }
+
+    public Vehicle createVehicle(
+            Long dealerId,
+            String vin,
+            int modelYear,
+            String make,
+            String model,
+            String trim,
+            List<String> imageUrls,
+            int mileage,
+            BigDecimal price,
+            VehicleStatus status
+    ) {
+        Dealer dealer = findApprovedDealer(dealerId);
+        Vehicle vehicle = new Vehicle();
+        applyVehicle(vehicle, dealer, vin, modelYear, make, model, trim, imageUrls, mileage, price, status);
+        return vehicleRepository.save(vehicle);
+    }
+
+    public InventoryUploadResult uploadInventory(
+            Long dealerId,
+            InventoryUploadMode mode,
+            List<InventoryUploadVehicle> vehicles
+    ) {
+        Dealer dealer = findApprovedDealer(dealerId);
+        return uploadInventory(dealer, mode, vehicles);
+    }
+
+    public InventoryUploadResult uploadInventoryCsv(
+            Long dealerId,
+            InventoryUploadMode mode,
+            MultipartFile file
+    ) {
+        Dealer dealer = findApprovedDealer(dealerId);
+        if (file.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "CSV file is required");
+        }
+
+        List<InventoryUploadRowResult> rows = new ArrayList<>();
+        Set<String> seenVins = new HashSet<>();
+        int createdCount = 0;
+        int updatedCount = 0;
+        int rejectedCount = 0;
+
+        try (
+                BufferedReader reader = new BufferedReader(new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8));
+                CSVParser parser = CSVFormat.DEFAULT.builder()
+                        .setHeader()
+                        .setSkipHeaderRecord(true)
+                        .setIgnoreEmptyLines(true)
+                        .setTrim(true)
+                        .build()
+                        .parse(reader)
+        ) {
+            validateCsvHeaders(parser);
+            for (CSVRecord record : parser) {
+                int rowNumber = (int) record.getRecordNumber() + 1;
+                String vin = normalizeVin(record.get("vin"));
+                if (!seenVins.add(vin)) {
+                    rows.add(new InventoryUploadRowResult(
+                            rowNumber,
+                            vin,
+                            InventoryUploadRowStatus.REJECTED,
+                            null,
+                            "Duplicate VIN in upload payload"
+                    ));
+                    rejectedCount++;
+                    continue;
+                }
+
+                try {
+                    InventoryUploadVehicle vehicle = new InventoryUploadVehicle(
+                            vin,
+                            Integer.parseInt(record.get("modelYear")),
+                            requiredValue(record, "make"),
+                            requiredValue(record, "model"),
+                            requiredValue(record, "trim"),
+                            parseImageUrls(requiredValue(record, "imageUrls")),
+                            Integer.parseInt(record.get("mileage")),
+                            new BigDecimal(record.get("price")),
+                            VehicleStatus.valueOf(requiredValue(record, "status").toUpperCase())
+                    );
+                    InventoryUploadRowResult rowResult = processUploadRow(dealer, mode, rowNumber, vehicle);
+                    rows.add(rowResult);
+                    if (rowResult.status() == InventoryUploadRowStatus.CREATED) {
+                        createdCount++;
+                    } else if (rowResult.status() == InventoryUploadRowStatus.UPDATED) {
+                        updatedCount++;
+                    } else {
+                        rejectedCount++;
+                    }
+                } catch (IllegalArgumentException exception) {
+                    rows.add(new InventoryUploadRowResult(
+                            rowNumber,
+                            vin,
+                            InventoryUploadRowStatus.REJECTED,
+                            null,
+                            exception.getMessage()
+                    ));
+                    rejectedCount++;
+                }
+            }
+        } catch (IOException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unable to read CSV file");
+        }
+
+        return new InventoryUploadResult(
+                dealer.getId(),
+                dealer.getName(),
+                mode,
+                rows.size(),
+                createdCount,
+                updatedCount,
+                rejectedCount,
+                rows
+        );
+    }
+
+    private InventoryUploadResult uploadInventory(
+            Dealer dealer,
+            InventoryUploadMode mode,
+            List<InventoryUploadVehicle> vehicles
+    ) {
+        List<InventoryUploadRowResult> rows = new ArrayList<>();
+        Set<String> seenVins = new HashSet<>();
+        int createdCount = 0;
+        int updatedCount = 0;
+        int rejectedCount = 0;
+
+        for (int index = 0; index < vehicles.size(); index++) {
+            InventoryUploadVehicle requestVehicle = vehicles.get(index);
+            String normalizedVin = normalizeVin(requestVehicle.vin());
+            if (!seenVins.add(normalizedVin)) {
+                rows.add(new InventoryUploadRowResult(
+                        index + 1,
+                        normalizedVin,
+                        InventoryUploadRowStatus.REJECTED,
+                        null,
+                        "Duplicate VIN in upload payload"
+                ));
+                rejectedCount++;
+                continue;
+            }
+
+            InventoryUploadRowResult rowResult = processUploadRow(
+                    dealer,
+                    mode,
+                    index + 1,
+                    new InventoryUploadVehicle(
+                            normalizedVin,
+                            requestVehicle.modelYear(),
+                            requestVehicle.make(),
+                            requestVehicle.model(),
+                            requestVehicle.trim(),
+                            requestVehicle.imageUrls(),
+                            requestVehicle.mileage(),
+                            requestVehicle.price(),
+                            requestVehicle.status()
+                    )
+            );
+            rows.add(rowResult);
+            if (rowResult.status() == InventoryUploadRowStatus.CREATED) {
+                createdCount++;
+            } else if (rowResult.status() == InventoryUploadRowStatus.UPDATED) {
+                updatedCount++;
+            } else {
+                rejectedCount++;
+            }
+        }
+
+        return new InventoryUploadResult(
+                dealer.getId(),
+                dealer.getName(),
+                mode,
+                vehicles.size(),
+                createdCount,
+                updatedCount,
+                rejectedCount,
+                rows
+        );
+    }
+
+    private InventoryUploadRowResult processUploadRow(
+            Dealer dealer,
+            InventoryUploadMode mode,
+            int rowNumber,
+            InventoryUploadVehicle requestVehicle
+    ) {
+        String normalizedVin = normalizeVin(requestVehicle.vin());
+        Vehicle existingVehicle = vehicleRepository.findByVinIgnoreCase(normalizedVin).orElse(null);
+        if (existingVehicle != null && !existingVehicle.getDealer().getId().equals(dealer.getId())) {
+            return new InventoryUploadRowResult(
+                    rowNumber,
+                    normalizedVin,
+                    InventoryUploadRowStatus.REJECTED,
+                    existingVehicle.getId(),
+                    "VIN already belongs to another dealer"
+            );
+        }
+
+        if (existingVehicle != null && mode == InventoryUploadMode.CREATE_ONLY) {
+            return new InventoryUploadRowResult(
+                    rowNumber,
+                    normalizedVin,
+                    InventoryUploadRowStatus.REJECTED,
+                    existingVehicle.getId(),
+                    "VIN already exists for this dealer"
+            );
+        }
+
+        Vehicle targetVehicle = existingVehicle == null ? new Vehicle() : existingVehicle;
+        applyVehicle(
+                targetVehicle,
+                dealer,
+                normalizedVin,
+                requestVehicle.modelYear(),
+                requestVehicle.make(),
+                requestVehicle.model(),
+                requestVehicle.trim(),
+                requestVehicle.imageUrls(),
+                requestVehicle.mileage(),
+                requestVehicle.price(),
+                requestVehicle.status()
+        );
+        Vehicle savedVehicle = vehicleRepository.save(targetVehicle);
+        return new InventoryUploadRowResult(
+                rowNumber,
+                normalizedVin,
+                existingVehicle == null ? InventoryUploadRowStatus.CREATED : InventoryUploadRowStatus.UPDATED,
+                savedVehicle.getId(),
+                existingVehicle == null ? "Vehicle created" : "Vehicle updated"
+        );
+    }
+
+    public Vehicle updateVehicle(
+            Long vehicleId,
+            Long dealerId,
+            String vin,
+            int modelYear,
+            String make,
+            String model,
+            String trim,
+            List<String> imageUrls,
+            int mileage,
+            BigDecimal price,
+            VehicleStatus status
+    ) {
+        Vehicle vehicle = findVehicle(vehicleId);
+        Dealer dealer = findApprovedDealer(dealerId);
+        applyVehicle(vehicle, dealer, vin, modelYear, make, model, trim, imageUrls, mileage, price, status);
+        return vehicleRepository.save(vehicle);
+    }
+
+    public Lead createLead(Long vehicleId, String buyerName, String buyerEmail, String buyerPhone, String message) {
+        Vehicle vehicle = findVehicle(vehicleId);
+        Lead lead = new Lead();
+        lead.setVehicle(vehicle);
+        lead.setBuyerName(buyerName);
+        lead.setBuyerEmail(buyerEmail);
+        lead.setBuyerPhone(buyerPhone);
+        lead.setMessage(message);
+        lead.setStatus(LeadStatus.NEW);
+        lead.setCreatedAt(OffsetDateTime.now());
+        return leadRepository.save(lead);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Lead> getLeads(Long vehicleId, LeadStatus status) {
+        if (vehicleId != null && status != null) {
+            return leadRepository.findByStatusAndVehicleId(status, vehicleId);
+        }
+        if (vehicleId != null) {
+            return leadRepository.findByVehicleId(vehicleId);
+        }
+        if (status != null) {
+            return leadRepository.findByStatus(status);
+        }
+        return leadRepository.findAll();
+    }
+
+    public Lead updateLeadStatus(Long leadId, LeadStatus status) {
+        Lead lead = leadRepository.findById(leadId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Lead not found"));
+        lead.setStatus(status);
+        return leadRepository.save(lead);
+    }
+
+    public Appointment createAppointment(Long vehicleId, String buyerName, String buyerEmail, AppointmentType type, OffsetDateTime scheduledAt) {
+        Vehicle vehicle = findVehicle(vehicleId);
+        Appointment appointment = new Appointment();
+        appointment.setVehicle(vehicle);
+        appointment.setBuyerName(buyerName);
+        appointment.setBuyerEmail(buyerEmail);
+        appointment.setType(type);
+        appointment.setStatus(AppointmentStatus.REQUESTED);
+        appointment.setScheduledAt(scheduledAt);
+        appointment.setCreatedAt(OffsetDateTime.now());
+        return appointmentRepository.save(appointment);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Appointment> getAppointments(Long vehicleId, AppointmentStatus status) {
+        if (vehicleId != null && status != null) {
+            return appointmentRepository.findByStatusAndVehicleId(status, vehicleId);
+        }
+        if (vehicleId != null) {
+            return appointmentRepository.findByVehicleId(vehicleId);
+        }
+        if (status != null) {
+            return appointmentRepository.findByStatus(status);
+        }
+        return appointmentRepository.findAll();
+    }
+
+    public Appointment updateAppointmentStatus(Long appointmentId, AppointmentStatus status) {
+        Appointment appointment = appointmentRepository.findById(appointmentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Appointment not found"));
+        appointment.setStatus(status);
+        return appointmentRepository.save(appointment);
+    }
+
+    @Transactional(readOnly = true)
+    public DashboardMetrics getDashboardMetrics() {
+        long dealerCount = dealerRepository.count();
+        long vehicleCount = vehicleRepository.count();
+        long liveVehicleCount = vehicleRepository.findByStatusInAndMakeContainingIgnoreCaseAndModelContainingIgnoreCaseAndPriceBetween(
+                List.of(VehicleStatus.LIVE), "", "", BigDecimal.ZERO, new BigDecimal("9999999")
+        ).size();
+        long newLeadCount = leadRepository.findByStatus(LeadStatus.NEW).size();
+        long requestedAppointmentCount = appointmentRepository.findByStatus(AppointmentStatus.REQUESTED).size();
+        return new DashboardMetrics(dealerCount, vehicleCount, liveVehicleCount, newLeadCount, requestedAppointmentCount);
+    }
+
+    private Dealer findApprovedDealer(Long dealerId) {
+        Dealer dealer = findDealer(dealerId);
+        if (!dealer.isApproved()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Dealer must be approved before publishing inventory");
+        }
+        return dealer;
+    }
+
+    private Dealer findDealer(Long dealerId) {
+        return dealerRepository.findById(dealerId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Dealer not found"));
+    }
+
+    private Vehicle findVehicle(Long vehicleId) {
+        return vehicleRepository.findById(vehicleId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Vehicle not found"));
+    }
+
+    private void applyVehicle(
+            Vehicle vehicle,
+            Dealer dealer,
+            String vin,
+            int modelYear,
+            String make,
+            String model,
+            String trim,
+            List<String> imageUrls,
+            int mileage,
+            BigDecimal price,
+            VehicleStatus status
+    ) {
+        vehicle.setDealer(dealer);
+        vehicle.setVin(vin.toUpperCase());
+        vehicle.setModelYear(modelYear);
+        vehicle.setMake(make);
+        vehicle.setModel(model);
+        vehicle.setTrim(trim);
+        vehicle.setImageUrls(imageUrls);
+        vehicle.setMileage(mileage);
+        vehicle.setPrice(price);
+        vehicle.setStatus(status);
+    }
+
+    private void validateCsvHeaders(CSVParser parser) {
+        List<String> requiredHeaders = List.of("vin", "modelYear", "make", "model", "trim", "imageUrls", "mileage", "price", "status");
+        for (String header : requiredHeaders) {
+            if (!parser.getHeaderMap().containsKey(header)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "CSV header missing required column: " + header);
+            }
+        }
+    }
+
+    private String requiredValue(CSVRecord record, String columnName) {
+        String value = record.get(columnName);
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("Missing required value for " + columnName);
+        }
+        return value.trim();
+    }
+
+    private String normalizeVin(String vin) {
+        if (vin == null || vin.isBlank()) {
+            throw new IllegalArgumentException("Missing required value for vin");
+        }
+        return vin.trim().toUpperCase();
+    }
+
+    private List<String> parseImageUrls(String rawImageUrls) {
+        List<String> imageUrls = Arrays.stream(rawImageUrls.split("\\|"))
+                .map(String::trim)
+                .filter(value -> !value.isBlank())
+                .toList();
+        if (imageUrls.isEmpty()) {
+            throw new IllegalArgumentException("Missing required value for imageUrls");
+        }
+        return imageUrls;
+    }
+}

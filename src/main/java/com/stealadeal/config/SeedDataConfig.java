@@ -7,6 +7,8 @@ import com.stealadeal.domain.Dealer;
 import com.stealadeal.domain.Deal;
 import com.stealadeal.domain.DealActivity;
 import com.stealadeal.domain.DealDocument;
+import com.stealadeal.domain.DealerInvoice;
+import com.stealadeal.domain.DealerSubscription;
 import com.stealadeal.domain.DealStage;
 import com.stealadeal.domain.Lead;
 import com.stealadeal.domain.LeadStatus;
@@ -14,15 +16,25 @@ import com.stealadeal.domain.DocumentStatus;
 import com.stealadeal.domain.DocumentType;
 import com.stealadeal.domain.FulfillmentStatus;
 import com.stealadeal.domain.FulfillmentType;
+import com.stealadeal.domain.InvoiceStatus;
+import com.stealadeal.domain.ParticipantType;
+import com.stealadeal.domain.SubscriptionPlan;
+import com.stealadeal.domain.SubscriptionStatus;
 import com.stealadeal.domain.Vehicle;
 import com.stealadeal.domain.VehicleStatus;
 import com.stealadeal.repository.AppointmentRepository;
 import com.stealadeal.repository.DealActivityRepository;
 import com.stealadeal.repository.DealerRepository;
+import com.stealadeal.repository.DealerInvoiceRepository;
+import com.stealadeal.repository.DealerSubscriptionRepository;
 import com.stealadeal.repository.DealDocumentRepository;
 import com.stealadeal.repository.DealRepository;
 import com.stealadeal.repository.LeadRepository;
+import com.stealadeal.repository.UserAccountRepository;
 import com.stealadeal.repository.VehicleRepository;
+import com.stealadeal.domain.UserAccount;
+import com.stealadeal.domain.UserRole;
+import com.stealadeal.service.TaskNotificationService;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -30,6 +42,7 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Profile;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 @Configuration
 @Profile("!test")
@@ -43,7 +56,12 @@ public class SeedDataConfig {
             AppointmentRepository appointmentRepository,
             DealRepository dealRepository,
             DealDocumentRepository dealDocumentRepository,
-            DealActivityRepository dealActivityRepository
+            DealActivityRepository dealActivityRepository,
+            DealerSubscriptionRepository dealerSubscriptionRepository,
+            DealerInvoiceRepository dealerInvoiceRepository,
+            TaskNotificationService taskNotificationService,
+            UserAccountRepository userAccountRepository,
+            PasswordEncoder passwordEncoder
     ) {
         return args -> {
             if (dealerRepository.count() > 0) {
@@ -190,6 +208,66 @@ public class SeedDataConfig {
             dealActivityRepository.save(activity(deal, "DEPOSIT_PAID", "Deposit recorded in the amount of 500.00", OffsetDateTime.now().minusHours(9)));
             dealActivityRepository.save(activity(deal, "DOCUMENT_STATUS_UPDATED", "DRIVER_LICENSE marked as APPROVED", OffsetDateTime.now().minusHours(7)));
             dealActivityRepository.save(activity(deal, "FULFILLMENT_UPDATED", "Fulfillment set to SCHEDULED at 1450 Market Street, San Francisco, CA", OffsetDateTime.now().minusHours(2)));
+
+            taskNotificationService.syncForDeal(deal);
+            taskNotificationService.createNotification(
+                    deal,
+                    ParticipantType.BUYER,
+                    deal.getBuyerEmail(),
+                    "Insurance proof still needed",
+                    "Upload and complete the insurance proof task to move this deal forward."
+            );
+            taskNotificationService.createNotification(
+                    deal,
+                    ParticipantType.DEALER,
+                    String.valueOf(deal.getVehicle().getDealer().getId()),
+                    "Deal waiting on buyer document",
+                    "Insurance proof is still pending for Jordan Blake's Tesla deal."
+            );
+
+            dealerSubscriptionRepository.save(subscription(
+                    westCoast,
+                    SubscriptionPlan.GROWTH,
+                    SubscriptionStatus.ACTIVE,
+                    new BigDecimal("1100.00"),
+                    OffsetDateTime.now().minusDays(15),
+                    OffsetDateTime.now().plusDays(15),
+                    true
+            ));
+            dealerSubscriptionRepository.save(subscription(
+                    urban,
+                    SubscriptionPlan.STARTER,
+                    SubscriptionStatus.TRIALING,
+                    new BigDecimal("699.00"),
+                    OffsetDateTime.now().minusDays(5),
+                    OffsetDateTime.now().plusDays(25),
+                    true
+            ));
+
+            dealerInvoiceRepository.save(invoice(
+                    westCoast,
+                    "INV-1-0001",
+                    InvoiceStatus.PAID,
+                    new BigDecimal("1100.00"),
+                    OffsetDateTime.now().minusDays(45),
+                    OffsetDateTime.now().minusDays(15),
+                    OffsetDateTime.now().minusDays(10),
+                    OffsetDateTime.now().minusDays(12)
+            ));
+            dealerInvoiceRepository.save(invoice(
+                    westCoast,
+                    "INV-1-0002",
+                    InvoiceStatus.OPEN,
+                    new BigDecimal("1100.00"),
+                    OffsetDateTime.now().minusDays(15),
+                    OffsetDateTime.now().plusDays(15),
+                    OffsetDateTime.now().plusDays(7),
+                    null
+            ));
+
+            userAccountRepository.save(user("West Coast Owner", "dealer1@stealadeal.local", "Dealer123!", UserRole.DEALER, westCoast.getId(), passwordEncoder));
+            userAccountRepository.save(user("Urban Drive Owner", "dealer2@stealadeal.local", "Dealer123!", UserRole.DEALER, urban.getId(), passwordEncoder));
+            userAccountRepository.save(user("Jordan Blake", "jordan@example.com", "Buyer123!", UserRole.BUYER, null, passwordEncoder));
         };
     }
 
@@ -243,5 +321,69 @@ public class SeedDataConfig {
         activity.setMessage(message);
         activity.setCreatedAt(timestamp);
         return activity;
+    }
+
+    private DealerSubscription subscription(
+            Dealer dealer,
+            SubscriptionPlan plan,
+            SubscriptionStatus status,
+            BigDecimal monthlyPrice,
+            OffsetDateTime periodStart,
+            OffsetDateTime periodEnd,
+            boolean autoRenew
+    ) {
+        DealerSubscription subscription = new DealerSubscription();
+        subscription.setDealer(dealer);
+        subscription.setPlan(plan);
+        subscription.setStatus(status);
+        subscription.setMonthlyPrice(monthlyPrice);
+        subscription.setCurrentPeriodStart(periodStart);
+        subscription.setCurrentPeriodEnd(periodEnd);
+        subscription.setAutoRenew(autoRenew);
+        subscription.setCreatedAt(periodStart);
+        subscription.setUpdatedAt(OffsetDateTime.now());
+        return subscription;
+    }
+
+    private DealerInvoice invoice(
+            Dealer dealer,
+            String invoiceNumber,
+            InvoiceStatus status,
+            BigDecimal amount,
+            OffsetDateTime periodStart,
+            OffsetDateTime periodEnd,
+            OffsetDateTime dueAt,
+            OffsetDateTime paidAt
+    ) {
+        DealerInvoice invoice = new DealerInvoice();
+        invoice.setDealer(dealer);
+        invoice.setInvoiceNumber(invoiceNumber);
+        invoice.setStatus(status);
+        invoice.setAmount(amount);
+        invoice.setPeriodStart(periodStart);
+        invoice.setPeriodEnd(periodEnd);
+        invoice.setDueAt(dueAt);
+        invoice.setPaidAt(paidAt);
+        invoice.setCreatedAt(periodStart);
+        return invoice;
+    }
+
+    private UserAccount user(
+            String displayName,
+            String email,
+            String rawPassword,
+            UserRole role,
+            Long dealerId,
+            PasswordEncoder passwordEncoder
+    ) {
+        UserAccount user = new UserAccount();
+        user.setDisplayName(displayName);
+        user.setEmail(email);
+        user.setPasswordHash(passwordEncoder.encode(rawPassword));
+        user.setRole(role);
+        user.setDealerId(dealerId);
+        user.setCreatedAt(OffsetDateTime.now());
+        user.setUpdatedAt(OffsetDateTime.now());
+        return user;
     }
 }

@@ -10,18 +10,87 @@ servers:
   - url: http://localhost:8282
     description: Local development
 tags:
+  - name: Auth
   - name: Dealers
   - name: Vehicles
   - name: Leads
   - name: Appointments
   - name: Deals
+  - name: Inbox
+  - name: Portal
+  - name: Tasks
+  - name: Notifications
   - name: Dashboard
+security:
+  - bearerAuth: []
 paths:
+  /api/auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a buyer or dealer account
+      operationId: registerAccount
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Account created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in and receive an access token
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authentication succeeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/auth/me:
+    get:
+      tags: [Auth]
+      summary: Get the current authenticated user
+      operationId: getCurrentUser
+      responses:
+        '200':
+          description: Current user returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
   /api/dealers:
     get:
       tags: [Dealers]
       summary: List dealers
       operationId: listDealers
+      security: []
       responses:
         '200':
           description: Dealers returned
@@ -35,6 +104,7 @@ paths:
       tags: [Dealers]
       summary: Create dealer
       operationId: createDealer
+      security: []
       requestBody:
         required: true
         content:
@@ -56,6 +126,7 @@ paths:
       tags: [Dealers]
       summary: Get dealer by id
       operationId: getDealer
+      security: []
       parameters:
         - $ref: '#/components/parameters/DealerId'
       responses:
@@ -114,11 +185,59 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/dealers/{dealerId}/inventory:
+    get:
+      tags: [Vehicles]
+      summary: List inventory for a dealer
+      operationId: listDealerInventory
+      parameters:
+        - $ref: '#/components/parameters/DealerId'
+      responses:
+        '200':
+          description: Dealer inventory returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Vehicle'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/dealers/{dealerId}/inventory-upload:
+    post:
+      tags: [Vehicles]
+      summary: Bulk upload inventory for a dealer
+      operationId: uploadDealerInventory
+      parameters:
+        - $ref: '#/components/parameters/DealerId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InventoryUploadRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/InventoryCsvUploadRequest'
+      responses:
+        '200':
+          description: Inventory upload processed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryUploadResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /api/vehicles:
     get:
       tags: [Vehicles]
       summary: List vehicles
       operationId: listVehicles
+      security: []
       parameters:
         - in: query
           name: dealerId
@@ -187,6 +306,7 @@ paths:
       tags: [Vehicles]
       summary: Get vehicle by id
       operationId: getVehicle
+      security: []
       parameters:
         - $ref: '#/components/parameters/VehicleId'
       responses:
@@ -227,6 +347,7 @@ paths:
       tags: [Leads]
       summary: Create lead for vehicle
       operationId: createLead
+      security: []
       parameters:
         - $ref: '#/components/parameters/VehicleId'
       requestBody:
@@ -302,6 +423,7 @@ paths:
       tags: [Appointments]
       summary: Create appointment for vehicle
       operationId: createAppointment
+      security: []
       parameters:
         - $ref: '#/components/parameters/VehicleId'
       requestBody:
@@ -631,7 +753,358 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/deals/{dealId}/tasks:
+    get:
+      tags: [Tasks]
+      summary: List computed tasks for a deal
+      operationId: listDealTasks
+      parameters:
+        - $ref: '#/components/parameters/DealId'
+      responses:
+        '200':
+          description: Deal tasks returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DealTask'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/inbox/buyers/{buyerEmail}:
+    get:
+      tags: [Inbox]
+      summary: Get buyer inbox
+      operationId: getBuyerInbox
+      parameters:
+        - in: path
+          name: buyerEmail
+          required: true
+          schema:
+            type: string
+            format: email
+      responses:
+        '200':
+          description: Buyer inbox returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParticipantInbox'
+
+  /api/inbox/dealers/{dealerId}:
+    get:
+      tags: [Inbox]
+      summary: Get dealer inbox
+      operationId: getDealerInbox
+      parameters:
+        - $ref: '#/components/parameters/DealerId'
+      responses:
+        '200':
+          description: Dealer inbox returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DealerInbox'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/dealers/{dealerId}/deal-queue:
+    get:
+      tags: [Inbox]
+      summary: Get categorized dealer deal queue
+      operationId: getDealerDealQueue
+      parameters:
+        - $ref: '#/components/parameters/DealerId'
+      responses:
+        '200':
+          description: Dealer queue returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DealerQueue'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/dealers/{dealerId}/portal:
+    get:
+      tags: [Portal]
+      summary: Get dealer portal overview and pipeline snapshot
+      operationId: getDealerPortal
+      parameters:
+        - $ref: '#/components/parameters/DealerId'
+      responses:
+        '200':
+          description: Dealer portal returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DealerPortal'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/dealers/{dealerId}/portal/deals:
+    get:
+      tags: [Portal]
+      summary: List dealer portal deals
+      operationId: listDealerPortalDeals
+      parameters:
+        - $ref: '#/components/parameters/DealerId'
+        - in: query
+          name: stage
+          schema:
+            $ref: '#/components/schemas/DealStage'
+      responses:
+        '200':
+          description: Dealer portal deals returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PortalDealItem'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/dealers/{dealerId}/portal/leads:
+    get:
+      tags: [Portal]
+      summary: List dealer portal leads
+      operationId: listDealerPortalLeads
+      parameters:
+        - $ref: '#/components/parameters/DealerId'
+        - in: query
+          name: status
+          schema:
+            $ref: '#/components/schemas/LeadStatus'
+      responses:
+        '200':
+          description: Dealer portal leads returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PortalLeadItem'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/dealers/{dealerId}/portal/appointments:
+    get:
+      tags: [Portal]
+      summary: List dealer portal appointments
+      operationId: listDealerPortalAppointments
+      parameters:
+        - $ref: '#/components/parameters/DealerId'
+        - in: query
+          name: status
+          schema:
+            $ref: '#/components/schemas/AppointmentStatus'
+      responses:
+        '200':
+          description: Dealer portal appointments returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PortalAppointmentItem'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/dealers/{dealerId}/portal/documents:
+    get:
+      tags: [Portal]
+      summary: List dealer portal documents
+      operationId: listDealerPortalDocuments
+      parameters:
+        - $ref: '#/components/parameters/DealerId'
+        - in: query
+          name: status
+          schema:
+            $ref: '#/components/schemas/DocumentStatus'
+      responses:
+        '200':
+          description: Dealer portal documents returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PortalDocumentItem'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/dealers/{dealerId}/portal/subscription:
+    get:
+      tags: [Portal]
+      summary: Get dealer portal subscription
+      operationId: getDealerPortalSubscription
+      parameters:
+        - $ref: '#/components/parameters/DealerId'
+      responses:
+        '200':
+          description: Dealer portal subscription returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PortalSubscription'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Portal]
+      summary: Update dealer portal subscription
+      operationId: updateDealerPortalSubscription
+      parameters:
+        - $ref: '#/components/parameters/DealerId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSubscriptionRequest'
+      responses:
+        '200':
+          description: Dealer portal subscription updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PortalSubscription'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/dealers/{dealerId}/portal/invoices:
+    get:
+      tags: [Portal]
+      summary: List dealer portal invoices
+      operationId: listDealerPortalInvoices
+      parameters:
+        - $ref: '#/components/parameters/DealerId'
+      responses:
+        '200':
+          description: Dealer portal invoices returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PortalInvoice'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/tasks:
+    get:
+      tags: [Tasks]
+      summary: List tasks for a participant
+      operationId: listTasksForAssignee
+      parameters:
+        - in: query
+          name: assigneeType
+          required: true
+          schema:
+            $ref: '#/components/schemas/ParticipantType'
+        - in: query
+          name: assigneeReference
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: status
+          schema:
+            $ref: '#/components/schemas/DealTaskStatus'
+      responses:
+        '200':
+          description: Tasks returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DealTask'
+
+  /api/tasks/{taskId}/status:
+    patch:
+      tags: [Tasks]
+      summary: Update task status
+      operationId: updateTaskStatus
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTaskStatusRequest'
+      responses:
+        '200':
+          description: Task updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DealTask'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/notifications:
+    get:
+      tags: [Notifications]
+      summary: List notifications for a participant
+      operationId: listNotifications
+      parameters:
+        - in: query
+          name: recipientType
+          required: true
+          schema:
+            $ref: '#/components/schemas/ParticipantType'
+        - in: query
+          name: recipientReference
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: unreadOnly
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Notifications returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Notification'
+
+  /api/notifications/{notificationId}/read:
+    patch:
+      tags: [Notifications]
+      summary: Mark notification as read
+      operationId: markNotificationRead
+      parameters:
+        - $ref: '#/components/parameters/NotificationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarkNotificationReadRequest'
+      responses:
+        '200':
+          description: Notification updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-token
+
   parameters:
     DealerId:
       in: path
@@ -675,10 +1148,36 @@ components:
       schema:
         type: integer
         format: int64
+    TaskId:
+      in: path
+      name: taskId
+      required: true
+      schema:
+        type: integer
+        format: int64
+    NotificationId:
+      in: path
+      name: notificationId
+      required: true
+      schema:
+        type: integer
+        format: int64
 
   responses:
     BadRequest:
       description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Authentication required or invalid credentials
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Authenticated user does not have access to the requested resource
       content:
         application/json:
           schema:
@@ -691,6 +1190,77 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
 
   schemas:
+    RegisterRequest:
+      type: object
+      required: [displayName, email, password, role]
+      properties:
+        displayName:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        role:
+          $ref: '#/components/schemas/UserRole'
+        dealerId:
+          type: integer
+          format: int64
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    AuthResponse:
+      type: object
+      required: [token, expiresAt, userId, displayName, email, role]
+      properties:
+        token:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        userId:
+          type: integer
+          format: int64
+        displayName:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          $ref: '#/components/schemas/UserRole'
+        dealerId:
+          type: integer
+          format: int64
+          nullable: true
+
+    CurrentUser:
+      type: object
+      required: [userId, displayName, email, role]
+      properties:
+        userId:
+          type: integer
+          format: int64
+        displayName:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          $ref: '#/components/schemas/UserRole'
+        dealerId:
+          type: integer
+          format: int64
+          nullable: true
+
     Dealer:
       type: object
       required: [id, name, licenseNumber, city, state, approved]
@@ -829,6 +1399,114 @@ components:
           minimum: 0
         status:
           $ref: '#/components/schemas/VehicleStatus'
+
+    InventoryUploadRequest:
+      type: object
+      required: [mode, vehicles]
+      properties:
+        mode:
+          $ref: '#/components/schemas/InventoryUploadMode'
+        vehicles:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/InventoryUploadVehicle'
+
+    InventoryCsvUploadRequest:
+      type: object
+      required: [mode, file]
+      description: |
+        CSV upload request. The CSV file must include the columns:
+        vin, modelYear, make, model, trim, imageUrls, mileage, price, status.
+        Multiple image URLs should be pipe-delimited inside the imageUrls column.
+      properties:
+        mode:
+          $ref: '#/components/schemas/InventoryUploadMode'
+        file:
+          type: string
+          format: binary
+
+    InventoryUploadVehicle:
+      type: object
+      required:
+        - vin
+        - modelYear
+        - make
+        - model
+        - trim
+        - imageUrls
+        - mileage
+        - price
+        - status
+      properties:
+        vin:
+          type: string
+          pattern: '^[A-HJ-NPR-Z0-9]{17}$'
+        modelYear:
+          type: integer
+          minimum: 1990
+        make:
+          type: string
+        model:
+          type: string
+        trim:
+          type: string
+        imageUrls:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            format: uri
+        mileage:
+          type: integer
+          minimum: 0
+        price:
+          type: number
+          format: double
+          minimum: 0
+        status:
+          $ref: '#/components/schemas/VehicleStatus'
+
+    InventoryUploadResponse:
+      type: object
+      required: [dealerId, dealerName, mode, totalRows, createdCount, updatedCount, rejectedCount, rows]
+      properties:
+        dealerId:
+          type: integer
+          format: int64
+        dealerName:
+          type: string
+        mode:
+          $ref: '#/components/schemas/InventoryUploadMode'
+        totalRows:
+          type: integer
+        createdCount:
+          type: integer
+        updatedCount:
+          type: integer
+        rejectedCount:
+          type: integer
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/InventoryUploadRow'
+
+    InventoryUploadRow:
+      type: object
+      required: [rowNumber, vin, status, message]
+      properties:
+        rowNumber:
+          type: integer
+        vin:
+          type: string
+        status:
+          $ref: '#/components/schemas/InventoryUploadRowStatus'
+        vehicleId:
+          type: integer
+          format: int64
+          nullable: true
+        message:
+          type: string
 
     Lead:
       type: object
@@ -1257,6 +1935,504 @@ components:
           items:
             type: string
 
+    InboxSummary:
+      type: object
+      required: [totalDeals, activeDeals, completedDeals, openTaskCount, inProgressTaskCount, unreadNotificationCount, readyForHandoffCount]
+      properties:
+        totalDeals:
+          type: integer
+        activeDeals:
+          type: integer
+        completedDeals:
+          type: integer
+        openTaskCount:
+          type: integer
+        inProgressTaskCount:
+          type: integer
+        unreadNotificationCount:
+          type: integer
+        readyForHandoffCount:
+          type: integer
+
+    QueueSummary:
+      type: object
+      required: [awaitingBuyerCount, needsDocumentReviewCount, readyForHandoffCount, stalledCount]
+      properties:
+        awaitingBuyerCount:
+          type: integer
+        needsDocumentReviewCount:
+          type: integer
+        readyForHandoffCount:
+          type: integer
+        stalledCount:
+          type: integer
+
+    PortalOverview:
+      type: object
+      required:
+        [dealerId, dealerName, totalInventoryCount, liveInventoryCount, reservedInventoryCount, soldInventoryCount,
+         totalInventoryValue, leadCount, newLeadCount, qualifiedLeadCount, appointmentCount, requestedAppointmentCount,
+         activeDealCount, completedDealCount, readyForHandoffCount, openTaskCount, unreadNotificationCount, stalledDealCount]
+      properties:
+        dealerId:
+          type: integer
+          format: int64
+        dealerName:
+          type: string
+        totalInventoryCount:
+          type: integer
+        liveInventoryCount:
+          type: integer
+        reservedInventoryCount:
+          type: integer
+        soldInventoryCount:
+          type: integer
+        totalInventoryValue:
+          type: number
+          format: double
+        leadCount:
+          type: integer
+        newLeadCount:
+          type: integer
+        qualifiedLeadCount:
+          type: integer
+        appointmentCount:
+          type: integer
+        requestedAppointmentCount:
+          type: integer
+        activeDealCount:
+          type: integer
+        completedDealCount:
+          type: integer
+        readyForHandoffCount:
+          type: integer
+        openTaskCount:
+          type: integer
+        unreadNotificationCount:
+          type: integer
+        stalledDealCount:
+          type: integer
+
+    MetricCount:
+      type: object
+      required: [code, count]
+      properties:
+        code:
+          type: string
+        count:
+          type: integer
+
+    PipelineSnapshot:
+      type: object
+      required: [inventoryStatusCounts, leadStatusCounts, appointmentStatusCounts, dealStageCounts]
+      properties:
+        inventoryStatusCounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetricCount'
+        leadStatusCounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetricCount'
+        appointmentStatusCounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetricCount'
+        dealStageCounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetricCount'
+
+    PortalDealItem:
+      type: object
+      required: [dealId, vehicleId, vehicleTitle, buyerName, stage, depositPaid, readyForHandoff, blockers, nextAction, updatedAt]
+      properties:
+        dealId:
+          type: integer
+          format: int64
+        vehicleId:
+          type: integer
+          format: int64
+        vehicleTitle:
+          type: string
+        buyerName:
+          type: string
+        stage:
+          $ref: '#/components/schemas/DealStage'
+        depositPaid:
+          type: boolean
+        readyForHandoff:
+          type: boolean
+        blockers:
+          type: array
+          items:
+            type: string
+        nextAction:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+
+    PortalLeadItem:
+      type: object
+      required: [id, vehicleId, vehicleTitle, buyerName, buyerEmail, status, message, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        vehicleId:
+          type: integer
+          format: int64
+        vehicleTitle:
+          type: string
+        buyerName:
+          type: string
+        buyerEmail:
+          type: string
+          format: email
+        status:
+          $ref: '#/components/schemas/LeadStatus'
+        message:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    PortalAppointmentItem:
+      type: object
+      required: [id, vehicleId, vehicleTitle, buyerName, buyerEmail, type, status, scheduledAt, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        vehicleId:
+          type: integer
+          format: int64
+        vehicleTitle:
+          type: string
+        buyerName:
+          type: string
+        buyerEmail:
+          type: string
+          format: email
+        type:
+          $ref: '#/components/schemas/AppointmentType'
+        status:
+          $ref: '#/components/schemas/AppointmentStatus'
+        scheduledAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    PortalDocumentItem:
+      type: object
+      required: [id, dealId, vehicleTitle, buyerName, type, status, fileName, updatedAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        dealId:
+          type: integer
+          format: int64
+        vehicleTitle:
+          type: string
+        buyerName:
+          type: string
+        type:
+          $ref: '#/components/schemas/DocumentType'
+        status:
+          $ref: '#/components/schemas/DocumentStatus'
+        fileName:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+
+    PortalSubscription:
+      type: object
+      required: [id, dealerId, plan, status, monthlyPrice, currentPeriodStart, currentPeriodEnd, autoRenew, updatedAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        dealerId:
+          type: integer
+          format: int64
+        plan:
+          $ref: '#/components/schemas/SubscriptionPlan'
+        status:
+          $ref: '#/components/schemas/SubscriptionStatus'
+        monthlyPrice:
+          type: number
+          format: double
+        currentPeriodStart:
+          type: string
+          format: date-time
+        currentPeriodEnd:
+          type: string
+          format: date-time
+        autoRenew:
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+
+    UpdateSubscriptionRequest:
+      type: object
+      required: [plan, status, autoRenew]
+      properties:
+        plan:
+          $ref: '#/components/schemas/SubscriptionPlan'
+        status:
+          $ref: '#/components/schemas/SubscriptionStatus'
+        autoRenew:
+          type: boolean
+
+    PortalInvoice:
+      type: object
+      required: [id, invoiceNumber, status, amount, periodStart, periodEnd, dueAt, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        invoiceNumber:
+          type: string
+        status:
+          $ref: '#/components/schemas/InvoiceStatus'
+        amount:
+          type: number
+          format: double
+        periodStart:
+          type: string
+          format: date-time
+        periodEnd:
+          type: string
+          format: date-time
+        dueAt:
+          type: string
+          format: date-time
+        paidAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    PortalActivityItem:
+      type: object
+      required: [dealId, vehicleTitle, eventType, message, createdAt]
+      properties:
+        dealId:
+          type: integer
+          format: int64
+        vehicleTitle:
+          type: string
+        eventType:
+          type: string
+        message:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    DealerPortal:
+      type: object
+      required: [overview, pipeline, queueSummary, recentDeals, recentActivity]
+      properties:
+        overview:
+          $ref: '#/components/schemas/PortalOverview'
+        pipeline:
+          $ref: '#/components/schemas/PipelineSnapshot'
+        queueSummary:
+          $ref: '#/components/schemas/QueueSummary'
+        recentDeals:
+          type: array
+          items:
+            $ref: '#/components/schemas/PortalDealItem'
+        recentActivity:
+          type: array
+          items:
+            $ref: '#/components/schemas/PortalActivityItem'
+
+    InboxDeal:
+      type: object
+      required:
+        [dealId, vehicleId, dealerId, vehicleTitle, stage, depositPaid, readyForHandoff, readyForCompletion,
+         blockers, openTaskCount, unreadNotificationCount, nextAction, updatedAt]
+      properties:
+        dealId:
+          type: integer
+          format: int64
+        vehicleId:
+          type: integer
+          format: int64
+        dealerId:
+          type: integer
+          format: int64
+        vehicleTitle:
+          type: string
+        stage:
+          $ref: '#/components/schemas/DealStage'
+        depositPaid:
+          type: boolean
+        fulfillmentScheduledAt:
+          type: string
+          format: date-time
+          nullable: true
+        fulfillmentLocation:
+          type: string
+          nullable: true
+        readyForHandoff:
+          type: boolean
+        readyForCompletion:
+          type: boolean
+        blockers:
+          type: array
+          items:
+            type: string
+        openTaskCount:
+          type: integer
+        unreadNotificationCount:
+          type: integer
+        nextAction:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+
+    ParticipantInbox:
+      type: object
+      required: [participantType, participantReference, summary, deals, tasks, notifications]
+      properties:
+        participantType:
+          $ref: '#/components/schemas/ParticipantType'
+        participantReference:
+          type: string
+        summary:
+          $ref: '#/components/schemas/InboxSummary'
+        deals:
+          type: array
+          items:
+            $ref: '#/components/schemas/InboxDeal'
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/DealTask'
+        notifications:
+          type: array
+          items:
+            $ref: '#/components/schemas/Notification'
+
+    DealerInbox:
+      type: object
+      required: [inbox, queueSummary]
+      properties:
+        inbox:
+          $ref: '#/components/schemas/ParticipantInbox'
+        queueSummary:
+          $ref: '#/components/schemas/QueueSummary'
+
+    DealerQueue:
+      type: object
+      required: [dealerId, summary, awaitingBuyer, needsDocumentReview, readyForHandoff, stalled]
+      properties:
+        dealerId:
+          type: integer
+          format: int64
+        summary:
+          $ref: '#/components/schemas/QueueSummary'
+        awaitingBuyer:
+          type: array
+          items:
+            $ref: '#/components/schemas/InboxDeal'
+        needsDocumentReview:
+          type: array
+          items:
+            $ref: '#/components/schemas/InboxDeal'
+        readyForHandoff:
+          type: array
+          items:
+            $ref: '#/components/schemas/InboxDeal'
+        stalled:
+          type: array
+          items:
+            $ref: '#/components/schemas/InboxDeal'
+
+    DealTask:
+      type: object
+      required: [id, dealId, code, assigneeType, assigneeReference, title, description, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        dealId:
+          type: integer
+          format: int64
+        code:
+          type: string
+        assigneeType:
+          $ref: '#/components/schemas/ParticipantType'
+        assigneeReference:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          $ref: '#/components/schemas/DealTaskStatus'
+        dueAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    UpdateTaskStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/DealTaskStatus'
+
+    Notification:
+      type: object
+      required: [id, recipientType, recipientReference, title, message, read, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        dealId:
+          type: integer
+          format: int64
+          nullable: true
+        recipientType:
+          $ref: '#/components/schemas/ParticipantType'
+        recipientReference:
+          type: string
+        title:
+          type: string
+        message:
+          type: string
+        read:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    MarkNotificationReadRequest:
+      type: object
+      required: [read]
+      properties:
+        read:
+          type: boolean
+
     ErrorResponse:
       type: object
       required: [error, message]
@@ -1273,6 +2449,19 @@ components:
         - LIVE
         - RESERVED
         - SOLD
+
+    InventoryUploadMode:
+      type: string
+      enum:
+        - CREATE_ONLY
+        - UPSERT
+
+    InventoryUploadRowStatus:
+      type: string
+      enum:
+        - CREATED
+        - UPDATED
+        - REJECTED
 
     LeadStatus:
       type: string
@@ -1302,6 +2491,29 @@ components:
         - PICKUP
         - HOME_DELIVERY
 
+    SubscriptionPlan:
+      type: string
+      enum:
+        - STARTER
+        - GROWTH
+        - PERFORMANCE
+
+    SubscriptionStatus:
+      type: string
+      enum:
+        - TRIALING
+        - ACTIVE
+        - PAST_DUE
+        - CANCELED
+
+    InvoiceStatus:
+      type: string
+      enum:
+        - DRAFT
+        - OPEN
+        - PAID
+        - VOID
+
     DealStage:
       type: string
       enum:
@@ -1330,6 +2542,21 @@ components:
         - APPROVED
         - REJECTED
 
+    ParticipantType:
+      type: string
+      enum:
+        - BUYER
+        - DEALER
+        - ADMIN
+
+    DealTaskStatus:
+      type: string
+      enum:
+        - OPEN
+        - IN_PROGRESS
+        - COMPLETED
+        - CANCELED
+
     FulfillmentStatus:
       type: string
       enum:
@@ -1338,3 +2565,10 @@ components:
         - READY
         - COMPLETED
         - CANCELED
+
+    UserRole:
+      type: string
+      enum:
+        - ADMIN
+        - DEALER
+        - BUYER

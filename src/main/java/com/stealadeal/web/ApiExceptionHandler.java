@@ -2,6 +2,7 @@ package com.stealadeal.web;
 
 import jakarta.validation.ConstraintViolationException;
 import java.util.Map;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -36,5 +37,11 @@ public class ApiExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Map<String, String> handleConstraintViolation(ConstraintViolationException exception) {
         return Map.of("error", "Bad Request", "message", exception.getMessage());
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public Map<String, String> handleAccessDenied(AccessDeniedException exception) {
+        return Map.of("error", "Forbidden", "message", "Access denied");
     }
 }

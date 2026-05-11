@@ -1,12 +1,13 @@
 package com.stealadeal.web;
 
 import com.stealadeal.domain.Dealer;
-import com.stealadeal.repository.DealerRepository;
+import com.stealadeal.service.DealerService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import java.util.List;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -17,60 +18,55 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/dealers")
 @Validated
 public class DealerController {
 
-    private final DealerRepository dealerRepository;
+    private final DealerService dealerService;
 
-    public DealerController(DealerRepository dealerRepository) {
-        this.dealerRepository = dealerRepository;
+    public DealerController(DealerService dealerService) {
+        this.dealerService = dealerService;
     }
 
     @GetMapping
     public List<DealerResponse> getDealers() {
-        return dealerRepository.findAll().stream().map(DealerResponse::from).toList();
+        return dealerService.getDealers().stream().map(DealerResponse::from).toList();
     }
 
     @GetMapping("/{dealerId}")
     public DealerResponse getDealer(@PathVariable Long dealerId) {
-        Dealer dealer = dealerRepository.findById(dealerId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Dealer not found"));
-        return DealerResponse.from(dealer);
+        return DealerResponse.from(dealerService.getDealer(dealerId));
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public DealerResponse createDealer(@Valid @RequestBody CreateDealerRequest request) {
-        Dealer dealer = new Dealer();
-        dealer.setName(request.name());
-        dealer.setLicenseNumber(request.licenseNumber());
-        dealer.setCity(request.city());
-        dealer.setState(request.state().toUpperCase());
-        dealer.setApproved(false);
-        return DealerResponse.from(dealerRepository.save(dealer));
+        return DealerResponse.from(dealerService.createDealer(
+                request.name(),
+                request.licenseNumber(),
+                request.city(),
+                request.state()
+        ));
     }
 
     @PatchMapping("/{dealerId}/approval")
+    @PreAuthorize("@accessControl.isAdmin(authentication)")
     public DealerResponse updateApproval(@PathVariable Long dealerId, @Valid @RequestBody UpdateDealerApprovalRequest request) {
-        Dealer dealer = dealerRepository.findById(dealerId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Dealer not found"));
-        dealer.setApproved(request.approved());
-        return DealerResponse.from(dealerRepository.save(dealer));
+        return DealerResponse.from(dealerService.updateDealerApproval(dealerId, request.approved()));
     }
 
     @PutMapping("/{dealerId}")
+    @PreAuthorize("@accessControl.canAccessDealer(authentication, #dealerId)")
     public DealerResponse updateDealer(@PathVariable Long dealerId, @Valid @RequestBody UpdateDealerRequest request) {
-        Dealer dealer = dealerRepository.findById(dealerId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Dealer not found"));
-        dealer.setName(request.name());
-        dealer.setLicenseNumber(request.licenseNumber());
-        dealer.setCity(request.city());
-        dealer.setState(request.state().toUpperCase());
-        return DealerResponse.from(dealerRepository.save(dealer));
+        return DealerResponse.from(dealerService.updateDealer(
+                dealerId,
+                request.name(),
+                request.licenseNumber(),
+                request.city(),
+                request.state()
+        ));
     }
 
     public record CreateDealerRequest(

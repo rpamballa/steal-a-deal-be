@@ -12,4 +12,6 @@ public interface LeadRepository extends JpaRepository<Lead, Long> {
     List<Lead> findByStatus(LeadStatus status);
 
     List<Lead> findByVehicleId(Long vehicleId);
+
+    List<Lead> findByVehicleDealerId(Long dealerId);
 }
