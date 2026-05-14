@@ -34,6 +34,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
+                        .requestMatchers("/api/webhooks/**").permitAll()
                         .requestMatchers("/h2-console/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/vehicles", "/api/vehicles/*").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/dealers", "/api/dealers/*").permitAll()

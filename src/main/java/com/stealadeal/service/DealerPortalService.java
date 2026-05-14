@@ -29,6 +29,7 @@ import com.stealadeal.repository.DealerInvoiceRepository;
 import com.stealadeal.repository.DealerSubscriptionRepository;
 import com.stealadeal.repository.LeadRepository;
 import com.stealadeal.repository.VehicleRepository;
+import com.stealadeal.service.billing.BillingProvider;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.Arrays;
@@ -183,6 +184,7 @@ public class DealerPortalService {
     private final TaskNotificationService taskNotificationService;
     private final DealService dealService;
     private final InboxService inboxService;
+    private final BillingProvider billingProvider;
 
     public DealerPortalService(
             DealerService dealerService,
@@ -196,7 +198,8 @@ public class DealerPortalService {
             DealerInvoiceRepository dealerInvoiceRepository,
             TaskNotificationService taskNotificationService,
             DealService dealService,
-            InboxService inboxService
+            InboxService inboxService,
+            BillingProvider billingProvider
     ) {
         this.dealerService = dealerService;
         this.vehicleRepository = vehicleRepository;
@@ -210,6 +213,7 @@ public class DealerPortalService {
         this.taskNotificationService = taskNotificationService;
         this.dealService = dealService;
         this.inboxService = inboxService;
+        this.billingProvider = billingProvider;
     }
 
     public DealerPortal getDealerPortal(Long dealerId) {
@@ -372,11 +376,42 @@ public class DealerPortalService {
     ) {
         Dealer dealer = dealerService.getDealer(dealerId);
         DealerSubscription subscription = ensureSubscription(dealer);
+        SubscriptionStatus previousStatus = subscription.getStatus();
         subscription.setPlan(plan);
         subscription.setMonthlyPrice(priceForPlan(plan));
         subscription.setStatus(status);
         subscription.setAutoRenew(autoRenew);
         subscription.setUpdatedAt(OffsetDateTime.now());
+
+        if (status == SubscriptionStatus.ACTIVE) {
+            if (subscription.getBillingCustomerId() == null) {
+                String contactEmail = dealer.getName().toLowerCase().replaceAll("\\s+", "-") + "@" + "stealadeal.local";
+                BillingProvider.BillingCustomerRef customer = billingProvider.ensureCustomer(
+                        new BillingProvider.BillingCustomerRequest(dealer.getId(), dealer.getName(), contactEmail)
+                );
+                subscription.setBillingCustomerId(customer.customerId());
+            }
+            if (subscription.getBillingSubscriptionId() == null) {
+                BillingProvider.BillingSubscriptionRef ref = billingProvider.activateSubscription(
+                        new BillingProvider.BillingActivationRequest(
+                                dealer.getId(),
+                                subscription.getBillingCustomerId(),
+                                plan.name(),
+                                subscription.getMonthlyPrice(),
+                                subscription.getPaymentMethodId()
+                        )
+                );
+                subscription.setBillingSubscriptionId(ref.subscriptionId());
+                subscription.setPaymentMethodId(ref.paymentMethodId());
+            }
+        } else if (status == SubscriptionStatus.CANCELED
+                && previousStatus != SubscriptionStatus.CANCELED
+                && subscription.getBillingSubscriptionId() != null) {
+            billingProvider.cancelSubscription(
+                    new BillingProvider.BillingCancellationRequest(dealer.getId(), subscription.getBillingSubscriptionId())
+            );
+        }
+
         DealerSubscription savedSubscription = dealerSubscriptionRepository.save(subscription);
 
         if (status == SubscriptionStatus.ACTIVE && dealerInvoiceRepository.findByDealerIdOrderByCreatedAtDesc(dealerId).isEmpty()) {

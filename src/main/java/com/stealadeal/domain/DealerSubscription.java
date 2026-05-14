@@ -43,6 +43,15 @@ public class DealerSubscription {
     @Column(nullable = false)
     private boolean autoRenew;
 
+    @Column
+    private String billingCustomerId;
+
+    @Column
+    private String billingSubscriptionId;
+
+    @Column
+    private String paymentMethodId;
+
     @Column(nullable = false)
     private OffsetDateTime createdAt;
 
@@ -107,6 +116,30 @@ public class DealerSubscription {
 
     public void setAutoRenew(boolean autoRenew) {
         this.autoRenew = autoRenew;
+    }
+
+    public String getBillingCustomerId() {
+        return billingCustomerId;
+    }
+
+    public void setBillingCustomerId(String billingCustomerId) {
+        this.billingCustomerId = billingCustomerId;
+    }
+
+    public String getBillingSubscriptionId() {
+        return billingSubscriptionId;
+    }
+
+    public void setBillingSubscriptionId(String billingSubscriptionId) {
+        this.billingSubscriptionId = billingSubscriptionId;
+    }
+
+    public String getPaymentMethodId() {
+        return paymentMethodId;
+    }
+
+    public void setPaymentMethodId(String paymentMethodId) {
+        this.paymentMethodId = paymentMethodId;
     }
 
     public OffsetDateTime getCreatedAt() {

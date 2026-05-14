@@ -201,6 +201,16 @@ class StealADealValidationTests {
     }
 
     @Test
+    void billingWebhookEndpointIsPublicAndAcksFromConfiguredProvider() throws Exception {
+        mockMvc.perform(post("/api/webhooks/billing")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"id\":\"evt_test\",\"type\":\"invoice.paid\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("accepted"))
+                .andExpect(jsonPath("$.provider").value("stub"));
+    }
+
+    @Test
     void unauthenticatedRequestToProtectedEndpointReturnsUnauthorized() throws Exception {
         mockMvc.perform(get("/api/deals"))
                 .andExpect(status().isUnauthorized());
