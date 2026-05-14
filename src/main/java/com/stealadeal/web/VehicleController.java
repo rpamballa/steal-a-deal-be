@@ -7,6 +7,7 @@ import com.stealadeal.domain.Lead;
 import com.stealadeal.domain.LeadStatus;
 import com.stealadeal.domain.Vehicle;
 import com.stealadeal.domain.VehicleStatus;
+import com.stealadeal.security.AuthenticatedUser;
 import com.stealadeal.service.InventoryService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
@@ -21,6 +22,7 @@ import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -157,10 +159,11 @@ public class VehicleController {
     @GetMapping("/leads")
     @PreAuthorize("@accessControl.isAuthenticated(authentication)")
     public List<LeadResponse> getLeads(
+            @AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(required = false) Long vehicleId,
             @RequestParam(required = false) LeadStatus status
     ) {
-        return inventoryService.getLeads(vehicleId, status).stream().map(LeadResponse::from).toList();
+        return inventoryService.getLeadsForPrincipal(user, vehicleId, status).stream().map(LeadResponse::from).toList();
     }
 
     @PatchMapping("/leads/{leadId}/status")
@@ -187,10 +190,11 @@ public class VehicleController {
     @GetMapping("/appointments")
     @PreAuthorize("@accessControl.isAuthenticated(authentication)")
     public List<AppointmentResponse> getAppointments(
+            @AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(required = false) Long vehicleId,
             @RequestParam(required = false) AppointmentStatus status
     ) {
-        return inventoryService.getAppointments(vehicleId, status).stream().map(AppointmentResponse::from).toList();
+        return inventoryService.getAppointmentsForPrincipal(user, vehicleId, status).stream().map(AppointmentResponse::from).toList();
     }
 
     @PatchMapping("/appointments/{appointmentId}/status")

@@ -9,12 +9,14 @@ import com.stealadeal.domain.DocumentType;
 import com.stealadeal.domain.FulfillmentStatus;
 import com.stealadeal.domain.FulfillmentType;
 import com.stealadeal.domain.ParticipantType;
+import com.stealadeal.domain.UserRole;
 import com.stealadeal.domain.Vehicle;
 import com.stealadeal.domain.VehicleStatus;
 import com.stealadeal.repository.DealActivityRepository;
 import com.stealadeal.repository.DealDocumentRepository;
 import com.stealadeal.repository.DealRepository;
 import com.stealadeal.repository.VehicleRepository;
+import com.stealadeal.security.AuthenticatedUser;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.OffsetDateTime;
@@ -101,6 +103,29 @@ public class DealService {
             return dealRepository.findByStage(stage);
         }
         return dealRepository.findAll();
+    }
+
+    @Transactional(readOnly = true)
+    public List<Deal> getDealsForPrincipal(AuthenticatedUser user, Long vehicleId, DealStage stage) {
+        if (user == null) {
+            return List.of();
+        }
+        if (user.role() == UserRole.ADMIN) {
+            return getDeals(vehicleId, stage);
+        }
+        if (user.role() == UserRole.DEALER && user.dealerId() != null) {
+            return dealRepository.findByVehicleDealerIdOrderByUpdatedAtDesc(user.dealerId()).stream()
+                    .filter(deal -> vehicleId == null || deal.getVehicle().getId().equals(vehicleId))
+                    .filter(deal -> stage == null || deal.getStage() == stage)
+                    .toList();
+        }
+        if (user.role() == UserRole.BUYER) {
+            return dealRepository.findByBuyerEmailOrderByUpdatedAtDesc(user.email()).stream()
+                    .filter(deal -> vehicleId == null || deal.getVehicle().getId().equals(vehicleId))
+                    .filter(deal -> stage == null || deal.getStage() == stage)
+                    .toList();
+        }
+        return List.of();
     }
 
     @Transactional(readOnly = true)

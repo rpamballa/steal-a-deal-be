@@ -201,6 +201,55 @@ class StealADealValidationTests {
     }
 
     @Test
+    void unauthenticatedRequestToProtectedEndpointReturnsUnauthorized() throws Exception {
+        mockMvc.perform(get("/api/deals"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/leads"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/appointments"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/dashboard"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void dealerCannotListDealsBelongingToAnotherDealer() throws Exception {
+        long dealerAId = createAndApproveDealer();
+        long dealerBId = createAndApproveDealer();
+        long vehicleBId = createVehicle(dealerBId);
+        String buyerEmail = "buyer+" + System.nanoTime() + "@example.com";
+        String buyerToken = registerBuyerUser(buyerEmail);
+
+        mockMvc.perform(post("/api/deals")
+                        .header("Authorization", bearer(buyerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "vehicleId": %d,
+                                  "buyerName": "Cross Tenant Buyer",
+                                  "buyerEmail": "%s",
+                                  "buyerPhone": "4085550199",
+                                  "buyerAddressLine1": "10 Main Street",
+                                  "buyerCity": "San Jose",
+                                  "buyerState": "CA",
+                                  "buyerPostalCode": "95112",
+                                  "fulfillmentType": "PICKUP",
+                                  "tradeIn": false,
+                                  "tradeInOffer": 0.00,
+                                  "deliveryFee": 0.00,
+                                  "discountAmount": 0.00
+                                }
+                                """.formatted(vehicleBId, buyerEmail)))
+                .andExpect(status().isCreated());
+
+        String dealerAToken = registerDealerUser(dealerAId, "dealer-a+" + dealerAId + "@example.com");
+        mockMvc.perform(get("/api/deals")
+                        .header("Authorization", bearer(dealerAToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
     void buyerCannotUpdateDealerAssignedTask() throws Exception {
         long dealerId = createAndApproveDealer();
         long vehicleId = createVehicle(dealerId);

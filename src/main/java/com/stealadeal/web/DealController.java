@@ -8,6 +8,7 @@ import com.stealadeal.domain.DocumentStatus;
 import com.stealadeal.domain.DocumentType;
 import com.stealadeal.domain.FulfillmentStatus;
 import com.stealadeal.domain.FulfillmentType;
+import com.stealadeal.security.AuthenticatedUser;
 import com.stealadeal.service.DealService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
@@ -21,6 +22,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -46,10 +48,11 @@ public class DealController {
     @GetMapping("/deals")
     @PreAuthorize("@accessControl.isAuthenticated(authentication)")
     public List<DealResponse> getDeals(
+            @AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(required = false) Long vehicleId,
             @RequestParam(required = false) DealStage stage
     ) {
-        return dealService.getDeals(vehicleId, stage).stream().map(DealResponse::from).toList();
+        return dealService.getDealsForPrincipal(user, vehicleId, stage).stream().map(DealResponse::from).toList();
     }
 
     @GetMapping("/deals/{dealId}")
