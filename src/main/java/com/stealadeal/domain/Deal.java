@@ -100,6 +100,9 @@ public class Deal {
     @Column(nullable = false)
     private boolean depositPaid;
 
+    @Column
+    private String depositIntentId;
+
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal totalAmount;
 
@@ -323,6 +326,14 @@ public class Deal {
 
     public void setDepositPaid(boolean depositPaid) {
         this.depositPaid = depositPaid;
+    }
+
+    public String getDepositIntentId() {
+        return depositIntentId;
+    }
+
+    public void setDepositIntentId(String depositIntentId) {
+        this.depositIntentId = depositIntentId;
     }
 
     public BigDecimal getTotalAmount() {

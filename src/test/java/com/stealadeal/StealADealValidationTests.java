@@ -323,6 +323,66 @@ class StealADealValidationTests {
     }
 
     @Test
+    void depositIntentConfirmedViaWebhookMarksDealPaid() throws Exception {
+        long dealerId = createAndApproveDealer();
+        long vehicleId = createVehicle(dealerId);
+        String buyerEmail = "buyer+" + System.nanoTime() + "@example.com";
+        String buyerToken = registerBuyerUser(buyerEmail);
+
+        mockMvc.perform(post("/api/deals")
+                        .header("Authorization", bearer(buyerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "vehicleId": %d,
+                                  "buyerName": "Deposit Buyer",
+                                  "buyerEmail": "%s",
+                                  "buyerPhone": "4085550122",
+                                  "buyerAddressLine1": "1 Deposit Way",
+                                  "buyerCity": "San Jose",
+                                  "buyerState": "CA",
+                                  "buyerPostalCode": "95112",
+                                  "fulfillmentType": "PICKUP",
+                                  "tradeIn": false,
+                                  "tradeInOffer": 0.00,
+                                  "deliveryFee": 0.00,
+                                  "discountAmount": 0.00
+                                }
+                                """.formatted(vehicleId, buyerEmail)))
+                .andExpect(status().isCreated());
+
+        long dealId = dealRepository.findAll().stream()
+                .max(Comparator.comparing(deal -> deal.getId()))
+                .orElseThrow()
+                .getId();
+
+        MvcResult intentResult = mockMvc.perform(post("/api/deals/" + dealId + "/deposit/intent")
+                        .header("Authorization", bearer(buyerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REQUIRES_PAYMENT"))
+                .andExpect(jsonPath("$.intentId").isNotEmpty())
+                .andReturn();
+        String intentId = extractField(intentResult.getResponse().getContentAsString(), "intentId");
+
+        mockMvc.perform(get("/api/deals/" + dealId)
+                        .header("Authorization", bearer(buyerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.depositPaid").value(false));
+
+        mockMvc.perform(post("/api/webhooks/billing")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"intentId\":\"" + intentId + "\",\"status\":\"SUCCEEDED\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("accepted"));
+
+        mockMvc.perform(get("/api/deals/" + dealId)
+                        .header("Authorization", bearer(buyerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.depositPaid").value(true))
+                .andExpect(jsonPath("$.stage").value("DEPOSIT_PAID"));
+    }
+
+    @Test
     void documentSignatureFlowEndsWithSignedAndApprovedStatus() throws Exception {
         long dealerId = createAndApproveDealer();
         long vehicleId = createVehicle(dealerId);

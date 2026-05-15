@@ -19,6 +19,7 @@ import com.stealadeal.repository.DealDocumentRepository;
 import com.stealadeal.repository.DealRepository;
 import com.stealadeal.repository.VehicleRepository;
 import com.stealadeal.security.AuthenticatedUser;
+import com.stealadeal.service.billing.BillingProvider;
 import com.stealadeal.service.esign.ESignProvider;
 import com.stealadeal.service.storage.DocumentStorageService;
 import java.io.IOException;
@@ -88,6 +89,7 @@ public class DealService {
     private final DocumentStorageService documentStorageService;
     private final DocumentStorageProperties documentStorageProperties;
     private final ESignProvider eSignProvider;
+    private final BillingProvider billingProvider;
 
     public DealService(
             DealRepository dealRepository,
@@ -97,7 +99,8 @@ public class DealService {
             TaskNotificationService taskNotificationService,
             DocumentStorageService documentStorageService,
             DocumentStorageProperties documentStorageProperties,
-            ESignProvider eSignProvider
+            ESignProvider eSignProvider,
+            BillingProvider billingProvider
     ) {
         this.dealRepository = dealRepository;
         this.dealActivityRepository = dealActivityRepository;
@@ -107,6 +110,10 @@ public class DealService {
         this.documentStorageService = documentStorageService;
         this.documentStorageProperties = documentStorageProperties;
         this.eSignProvider = eSignProvider;
+        this.billingProvider = billingProvider;
+    }
+
+    public record DepositIntentView(String intentId, String clientSecret, String status, BigDecimal amount) {
     }
 
     public record DocumentDownload(DealDocument document, InputStream content) {
@@ -254,6 +261,46 @@ public class DealService {
         if (amount.compareTo(deal.getDepositAmount()) < 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Deposit amount is below required minimum");
         }
+        return markDepositPaid(deal, amount);
+    }
+
+    public DepositIntentView createDepositIntent(Long dealId) {
+        Deal deal = findDeal(dealId);
+        if (deal.isDepositPaid()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Deposit has already been paid");
+        }
+        BillingProvider.DepositIntent intent = billingProvider.createDepositIntent(
+                new BillingProvider.DepositIntentRequest(
+                        deal.getId(),
+                        deal.getBuyerEmail(),
+                        deal.getDepositAmount(),
+                        "usd"
+                )
+        );
+        deal.setDepositIntentId(intent.intentId());
+        deal.setUpdatedAt(OffsetDateTime.now());
+        dealRepository.save(deal);
+        recordActivity(deal, "DEPOSIT_INTENT_CREATED",
+                "Deposit intent " + intent.intentId() + " created for "
+                        + deal.getDepositAmount().setScale(2, RoundingMode.HALF_UP));
+        return new DepositIntentView(intent.intentId(), intent.clientSecret(), intent.status(), deal.getDepositAmount());
+    }
+
+    public Deal confirmDepositByIntent(String intentId, String providerStatus) {
+        Deal deal = dealRepository.findByDepositIntentId(intentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Deposit intent not found"));
+        if (deal.isDepositPaid()) {
+            return deal;
+        }
+        if (!"SUCCEEDED".equalsIgnoreCase(providerStatus)) {
+            recordActivity(deal, "DEPOSIT_INTENT_FAILED",
+                    "Deposit intent " + intentId + " reported status " + providerStatus);
+            return deal;
+        }
+        return markDepositPaid(deal, deal.getDepositAmount());
+    }
+
+    private Deal markDepositPaid(Deal deal, BigDecimal amount) {
         deal.setDepositPaid(true);
         deal.setStage(DealStage.DEPOSIT_PAID);
         deal.setUpdatedAt(OffsetDateTime.now());

@@ -32,6 +32,16 @@ public interface BillingProvider {
     record BillingCancellationRequest(Long dealerId, String subscriptionId) {
     }
 
+    record DepositIntentRequest(Long dealId, String buyerEmail, BigDecimal amount, String currency) {
+    }
+
+    /** {@code status} is one of REQUIRES_PAYMENT, SUCCEEDED, FAILED. */
+    record DepositIntent(String intentId, String clientSecret, String status) {
+    }
+
+    record DepositWebhook(String intentId, String status) {
+    }
+
     String name();
 
     BillingCustomerRef ensureCustomer(BillingCustomerRequest request);
@@ -39,6 +49,14 @@ public interface BillingProvider {
     BillingSubscriptionRef activateSubscription(BillingActivationRequest request);
 
     void cancelSubscription(BillingCancellationRequest request);
+
+    DepositIntent createDepositIntent(DepositIntentRequest request);
+
+    /**
+     * Parse a deposit-related webhook event. Returns {@code null} when the
+     * payload is not a deposit event or cannot be verified.
+     */
+    DepositWebhook parseDepositEvent(String signatureHeader, String rawBody);
 
     /**
      * Verify a webhook signature/body. Implementations that do not support

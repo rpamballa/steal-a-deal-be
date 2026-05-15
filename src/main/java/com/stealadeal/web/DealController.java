@@ -103,6 +103,13 @@ public class DealController {
         return DealResponse.from(dealService.payDeposit(dealId, request.amount()));
     }
 
+    @PostMapping("/deals/{dealId}/deposit/intent")
+    @PreAuthorize("@accessControl.canAccessDeal(authentication, #dealId)")
+    public DepositIntentResponse createDepositIntent(@PathVariable Long dealId) {
+        DealService.DepositIntentView intent = dealService.createDepositIntent(dealId);
+        return new DepositIntentResponse(intent.intentId(), intent.clientSecret(), intent.status(), intent.amount());
+    }
+
     @GetMapping("/deals/{dealId}/documents")
     @PreAuthorize("@accessControl.canAccessDeal(authentication, #dealId)")
     public List<DealDocumentResponse> getDealDocuments(
@@ -226,6 +233,9 @@ public class DealController {
     }
 
     public record PayDepositRequest(@NotNull @DecimalMin("0.0") BigDecimal amount) {
+    }
+
+    public record DepositIntentResponse(String intentId, String clientSecret, String status, BigDecimal amount) {
     }
 
     public record CreateDealDocumentRequest(@NotNull DocumentType type, @NotBlank String fileName) {

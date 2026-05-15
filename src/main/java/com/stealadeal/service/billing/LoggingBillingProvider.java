@@ -52,6 +52,48 @@ public class LoggingBillingProvider implements BillingProvider {
     }
 
     @Override
+    public DepositIntent createDepositIntent(DepositIntentRequest request) {
+        String intentId = "stub_pi_" + UUID.randomUUID().toString().substring(0, 12);
+        log.info("[billing/stub] createDepositIntent deal={} amount={} {} -> {}",
+                request.dealId(), request.amount(), request.currency(), intentId);
+        return new DepositIntent(intentId, intentId + "_secret", "REQUIRES_PAYMENT");
+    }
+
+    @Override
+    public DepositWebhook parseDepositEvent(String signatureHeader, String rawBody) {
+        if (rawBody == null || rawBody.isBlank()) {
+            return null;
+        }
+        String intentId = extract(rawBody, "intentId");
+        String status = extract(rawBody, "status");
+        if (intentId == null || status == null) {
+            return null;
+        }
+        return new DepositWebhook(intentId, status);
+    }
+
+    private String extract(String json, String key) {
+        String marker = "\"" + key + "\"";
+        int idx = json.indexOf(marker);
+        if (idx < 0) {
+            return null;
+        }
+        int colon = json.indexOf(':', idx + marker.length());
+        if (colon < 0) {
+            return null;
+        }
+        int start = json.indexOf('"', colon);
+        if (start < 0) {
+            return null;
+        }
+        int end = json.indexOf('"', start + 1);
+        if (end < 0) {
+            return null;
+        }
+        return json.substring(start + 1, end);
+    }
+
+    @Override
     public boolean verifyWebhookSignature(String signatureHeader, String rawBody) {
         if (signatureHeader == null || signatureHeader.isBlank()) {
             return true;
