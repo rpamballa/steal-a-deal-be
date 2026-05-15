@@ -106,6 +106,21 @@ public class Deal {
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal totalAmount;
 
+    @Column(precision = 6, scale = 5)
+    private BigDecimal platformFeeRate;
+
+    @Column(precision = 12, scale = 2)
+    private BigDecimal platformFeeAmount;
+
+    @Column(nullable = false)
+    private boolean platformFeeSettled;
+
+    @Column
+    private String platformFeeChargeId;
+
+    @Column
+    private OffsetDateTime platformFeeSettledAt;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private DealStage stage;
@@ -342,6 +357,46 @@ public class Deal {
 
     public void setTotalAmount(BigDecimal totalAmount) {
         this.totalAmount = totalAmount;
+    }
+
+    public BigDecimal getPlatformFeeRate() {
+        return platformFeeRate;
+    }
+
+    public void setPlatformFeeRate(BigDecimal platformFeeRate) {
+        this.platformFeeRate = platformFeeRate;
+    }
+
+    public BigDecimal getPlatformFeeAmount() {
+        return platformFeeAmount;
+    }
+
+    public void setPlatformFeeAmount(BigDecimal platformFeeAmount) {
+        this.platformFeeAmount = platformFeeAmount;
+    }
+
+    public boolean isPlatformFeeSettled() {
+        return platformFeeSettled;
+    }
+
+    public void setPlatformFeeSettled(boolean platformFeeSettled) {
+        this.platformFeeSettled = platformFeeSettled;
+    }
+
+    public String getPlatformFeeChargeId() {
+        return platformFeeChargeId;
+    }
+
+    public void setPlatformFeeChargeId(String platformFeeChargeId) {
+        this.platformFeeChargeId = platformFeeChargeId;
+    }
+
+    public OffsetDateTime getPlatformFeeSettledAt() {
+        return platformFeeSettledAt;
+    }
+
+    public void setPlatformFeeSettledAt(OffsetDateTime platformFeeSettledAt) {
+        this.platformFeeSettledAt = platformFeeSettledAt;
     }
 
     public DealStage getStage() {

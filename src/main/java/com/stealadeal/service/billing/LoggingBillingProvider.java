@@ -60,6 +60,14 @@ public class LoggingBillingProvider implements BillingProvider {
     }
 
     @Override
+    public TransactionFeeRef chargeTransactionFee(TransactionFeeRequest request) {
+        String chargeId = "stub_fee_" + UUID.randomUUID().toString().substring(0, 12);
+        log.info("[billing/stub] chargeTransactionFee deal={} dealer={} amount={} {} -> {}",
+                request.dealId(), request.dealerId(), request.amount(), request.currency(), chargeId);
+        return new TransactionFeeRef(chargeId, "SETTLED");
+    }
+
+    @Override
     public DepositWebhook parseDepositEvent(String signatureHeader, String rawBody) {
         if (rawBody == null || rawBody.isBlank()) {
             return null;

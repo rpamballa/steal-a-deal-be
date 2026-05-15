@@ -42,6 +42,13 @@ public interface BillingProvider {
     record DepositWebhook(String intentId, String status) {
     }
 
+    record TransactionFeeRequest(Long dealId, Long dealerId, BigDecimal amount, String currency) {
+    }
+
+    /** {@code status} is one of SETTLED, PENDING, FAILED. */
+    record TransactionFeeRef(String chargeId, String status) {
+    }
+
     String name();
 
     BillingCustomerRef ensureCustomer(BillingCustomerRequest request);
@@ -51,6 +58,8 @@ public interface BillingProvider {
     void cancelSubscription(BillingCancellationRequest request);
 
     DepositIntent createDepositIntent(DepositIntentRequest request);
+
+    TransactionFeeRef chargeTransactionFee(TransactionFeeRequest request);
 
     /**
      * Parse a deposit-related webhook event. Returns {@code null} when the

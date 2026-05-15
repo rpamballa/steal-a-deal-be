@@ -196,6 +196,12 @@ public class DealController {
         return dealService.getDealActivity(dealId).stream().map(DealActivityResponse::from).toList();
     }
 
+    @GetMapping("/deals/{dealId}/platform-fee")
+    @PreAuthorize("@accessControl.canAccessDeal(authentication, #dealId)")
+    public DealService.PlatformFeeView getPlatformFee(@PathVariable Long dealId) {
+        return dealService.getPlatformFee(dealId);
+    }
+
     @GetMapping("/deals/{dealId}/readiness")
     @PreAuthorize("@accessControl.canAccessDeal(authentication, #dealId)")
     public DealReadinessResponse getDealReadiness(@PathVariable Long dealId) {
@@ -282,6 +288,9 @@ public class DealController {
             BigDecimal depositAmount,
             boolean depositPaid,
             BigDecimal totalAmount,
+            BigDecimal platformFeeRate,
+            BigDecimal platformFeeAmount,
+            boolean platformFeeSettled,
             DealStage stage,
             OffsetDateTime createdAt,
             OffsetDateTime updatedAt
@@ -318,6 +327,9 @@ public class DealController {
                     deal.getDepositAmount(),
                     deal.isDepositPaid(),
                     deal.getTotalAmount(),
+                    deal.getPlatformFeeRate(),
+                    deal.getPlatformFeeAmount(),
+                    deal.isPlatformFeeSettled(),
                     deal.getStage(),
                     deal.getCreatedAt(),
                     deal.getUpdatedAt()

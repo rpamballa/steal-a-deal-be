@@ -323,6 +323,84 @@ class StealADealValidationTests {
     }
 
     @Test
+    void platformFeeIsProjectedBeforeCompletionAndSettledOnCompletion() throws Exception {
+        long dealerId = createAndApproveDealer();
+        long vehicleId = createVehicle(dealerId);
+        String buyerEmail = "buyer+" + System.nanoTime() + "@example.com";
+        String buyerToken = registerBuyerUser(buyerEmail);
+        String dealerToken = registerDealerUser(dealerId, "dealer-fee+" + dealerId + "@example.com");
+
+        mockMvc.perform(post("/api/deals")
+                        .header("Authorization", bearer(buyerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "vehicleId": %d,
+                                  "buyerName": "Fee Buyer",
+                                  "buyerEmail": "%s",
+                                  "buyerPhone": "4085550144",
+                                  "buyerAddressLine1": "1 Fee Way",
+                                  "buyerCity": "San Jose",
+                                  "buyerState": "CA",
+                                  "buyerPostalCode": "95112",
+                                  "fulfillmentType": "PICKUP",
+                                  "tradeIn": false,
+                                  "tradeInOffer": 0.00,
+                                  "deliveryFee": 0.00,
+                                  "discountAmount": 0.00
+                                }
+                                """.formatted(vehicleId, buyerEmail)))
+                .andExpect(status().isCreated());
+
+        long dealId = dealRepository.findAll().stream()
+                .max(Comparator.comparing(deal -> deal.getId()))
+                .orElseThrow()
+                .getId();
+
+        // 28995.00 * 0.0075 = 217.4625 -> 217.46
+        mockMvc.perform(get("/api/deals/" + dealId + "/platform-fee")
+                        .header("Authorization", bearer(dealerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.settled").value(false))
+                .andExpect(jsonPath("$.feeAmount").value(217.46));
+
+        // Drive the deal to COMPLETED
+        mockMvc.perform(patch("/api/deals/" + dealId + "/stage").header("Authorization", bearer(dealerToken))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"stage\":\"OFFER_SENT\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(patch("/api/deals/" + dealId + "/stage").header("Authorization", bearer(buyerToken))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"stage\":\"BUYER_CONFIRMED\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/deals/" + dealId + "/deposit").header("Authorization", bearer(buyerToken))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"amount\":500.00}"))
+                .andExpect(status().isOk());
+        var documents = dealDocumentRepository.findByDealId(dealId);
+        for (var d : documents) {
+            mockMvc.perform(patch("/api/deals/" + dealId + "/documents/" + d.getId() + "/status")
+                            .header("Authorization", bearer(dealerToken))
+                            .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"APPROVED\"}"))
+                    .andExpect(status().isOk());
+        }
+        mockMvc.perform(patch("/api/deals/" + dealId + "/stage").header("Authorization", bearer(dealerToken))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"stage\":\"DOCUMENTS_PENDING\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(patch("/api/deals/" + dealId + "/stage").header("Authorization", bearer(dealerToken))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"stage\":\"READY_FOR_HANDOFF\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(patch("/api/deals/" + dealId + "/stage").header("Authorization", bearer(dealerToken))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"stage\":\"COMPLETED\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.platformFeeSettled").value(true))
+                .andExpect(jsonPath("$.platformFeeAmount").value(217.46));
+
+        mockMvc.perform(get("/api/deals/" + dealId + "/platform-fee")
+                        .header("Authorization", bearer(dealerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.settled").value(true))
+                .andExpect(jsonPath("$.chargeId").isNotEmpty());
+    }
+
+    @Test
     void notificationsAreDispatchedOnExternalChannels() throws Exception {
         long dealerId = createAndApproveDealer();
         long vehicleId = createVehicle(dealerId);

@@ -90,6 +90,7 @@ public class DealService {
     private final DocumentStorageProperties documentStorageProperties;
     private final ESignProvider eSignProvider;
     private final BillingProvider billingProvider;
+    private final TransactionFeeService transactionFeeService;
 
     public DealService(
             DealRepository dealRepository,
@@ -100,7 +101,8 @@ public class DealService {
             DocumentStorageService documentStorageService,
             DocumentStorageProperties documentStorageProperties,
             ESignProvider eSignProvider,
-            BillingProvider billingProvider
+            BillingProvider billingProvider,
+            TransactionFeeService transactionFeeService
     ) {
         this.dealRepository = dealRepository;
         this.dealActivityRepository = dealActivityRepository;
@@ -111,9 +113,40 @@ public class DealService {
         this.documentStorageProperties = documentStorageProperties;
         this.eSignProvider = eSignProvider;
         this.billingProvider = billingProvider;
+        this.transactionFeeService = transactionFeeService;
     }
 
     public record DepositIntentView(String intentId, String clientSecret, String status, BigDecimal amount) {
+    }
+
+    public record PlatformFeeView(
+            Long dealId,
+            BigDecimal vehiclePrice,
+            BigDecimal feeRate,
+            BigDecimal feeAmount,
+            boolean settled,
+            String chargeId,
+            OffsetDateTime settledAt
+    ) {
+    }
+
+    @Transactional(readOnly = true)
+    public PlatformFeeView getPlatformFee(Long dealId) {
+        Deal deal = findDeal(dealId);
+        // Settled deals expose the persisted rate/amount; open deals show
+        // the projection so dealers can see the fee before completion.
+        BigDecimal amount = deal.getPlatformFeeAmount() != null
+                ? deal.getPlatformFeeAmount()
+                : transactionFeeService.computeFee(deal);
+        return new PlatformFeeView(
+                deal.getId(),
+                deal.getVehiclePrice(),
+                deal.getPlatformFeeRate(),
+                amount,
+                deal.isPlatformFeeSettled(),
+                deal.getPlatformFeeChargeId(),
+                deal.getPlatformFeeSettledAt()
+        );
     }
 
     public record DocumentDownload(DealDocument document, InputStream content) {
@@ -242,6 +275,14 @@ public class DealService {
         }
         Deal savedDeal = dealRepository.save(deal);
         recordActivity(savedDeal, "STAGE_CHANGED", "Deal stage changed from " + previousStage + " to " + savedDeal.getStage());
+        if (nextStage == DealStage.COMPLETED) {
+            savedDeal = transactionFeeService.settleForCompletedDeal(savedDeal);
+            if (savedDeal.isPlatformFeeSettled()) {
+                recordActivity(savedDeal, "PLATFORM_FEE_SETTLED",
+                        "Platform transaction fee of " + savedDeal.getPlatformFeeAmount()
+                                + " settled (charge " + savedDeal.getPlatformFeeChargeId() + ")");
+            }
+        }
         taskNotificationService.createNotification(
                 savedDeal,
                 ParticipantType.BUYER,
