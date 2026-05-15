@@ -323,6 +323,83 @@ class StealADealValidationTests {
     }
 
     @Test
+    void documentSignatureFlowEndsWithSignedAndApprovedStatus() throws Exception {
+        long dealerId = createAndApproveDealer();
+        long vehicleId = createVehicle(dealerId);
+        String buyerEmail = "buyer+" + System.nanoTime() + "@example.com";
+        String buyerToken = registerBuyerUser(buyerEmail);
+
+        mockMvc.perform(post("/api/deals")
+                        .header("Authorization", bearer(buyerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "vehicleId": %d,
+                                  "buyerName": "Sign Buyer",
+                                  "buyerEmail": "%s",
+                                  "buyerPhone": "4085550111",
+                                  "buyerAddressLine1": "1 Sign Way",
+                                  "buyerCity": "San Jose",
+                                  "buyerState": "CA",
+                                  "buyerPostalCode": "95112",
+                                  "fulfillmentType": "PICKUP",
+                                  "tradeIn": false,
+                                  "tradeInOffer": 0.00,
+                                  "deliveryFee": 0.00,
+                                  "discountAmount": 0.00
+                                }
+                                """.formatted(vehicleId, buyerEmail)))
+                .andExpect(status().isCreated());
+
+        long dealId = dealRepository.findAll().stream()
+                .max(Comparator.comparing(deal -> deal.getId()))
+                .orElseThrow()
+                .getId();
+        var buyerAgreement = dealDocumentRepository.findByDealId(dealId).stream()
+                .filter(d -> d.getType().name().equals("BUYER_AGREEMENT"))
+                .findFirst()
+                .orElseThrow();
+
+        org.springframework.mock.web.MockMultipartFile pdf = new org.springframework.mock.web.MockMultipartFile(
+                "file", "buyer-agreement.pdf", "application/pdf", "agreement bytes".getBytes());
+
+        mockMvc.perform(multipart("/api/deals/" + dealId + "/documents/" + buyerAgreement.getId() + "/upload")
+                        .file(pdf)
+                        .header("Authorization", bearer(buyerToken)))
+                .andExpect(status().isOk());
+
+        MvcResult signResult = mockMvc.perform(post("/api/deals/" + dealId + "/documents/" + buyerAgreement.getId() + "/sign")
+                        .header("Authorization", bearer(buyerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.signingStatus").value("SENT"))
+                .andExpect(jsonPath("$.signingEnvelopeId").isNotEmpty())
+                .andReturn();
+
+        String envelopeId = extractField(signResult.getResponse().getContentAsString(), "signingEnvelopeId");
+
+        mockMvc.perform(post("/api/webhooks/esign")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"envelopeId\":\"" + envelopeId + "\",\"status\":\"SIGNED\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("accepted"));
+
+        var refreshed = dealDocumentRepository.findById(buyerAgreement.getId()).orElseThrow();
+        org.junit.jupiter.api.Assertions.assertEquals("SIGNED", refreshed.getSigningStatus().name());
+        org.junit.jupiter.api.Assertions.assertEquals("APPROVED", refreshed.getStatus().name());
+    }
+
+    private String extractField(String json, String field) {
+        String marker = "\"" + field + "\":\"";
+        int start = json.indexOf(marker);
+        if (start < 0) {
+            return null;
+        }
+        start += marker.length();
+        int end = json.indexOf('"', start);
+        return json.substring(start, end);
+    }
+
+    @Test
     void unauthenticatedRequestToProtectedEndpointReturnsUnauthorized() throws Exception {
         mockMvc.perform(get("/api/deals"))
                 .andExpect(status().isUnauthorized());

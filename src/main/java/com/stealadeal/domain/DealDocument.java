@@ -42,6 +42,13 @@ public class DealDocument {
     @Column
     private Long sizeBytes;
 
+    @Column
+    private String signingEnvelopeId;
+
+    @Enumerated(EnumType.STRING)
+    @Column
+    private SigningStatus signingStatus;
+
     @Column(nullable = false)
     private OffsetDateTime createdAt;
 
@@ -106,6 +113,22 @@ public class DealDocument {
 
     public void setSizeBytes(Long sizeBytes) {
         this.sizeBytes = sizeBytes;
+    }
+
+    public String getSigningEnvelopeId() {
+        return signingEnvelopeId;
+    }
+
+    public void setSigningEnvelopeId(String signingEnvelopeId) {
+        this.signingEnvelopeId = signingEnvelopeId;
+    }
+
+    public SigningStatus getSigningStatus() {
+        return signingStatus;
+    }
+
+    public void setSigningStatus(SigningStatus signingStatus) {
+        this.signingStatus = signingStatus;
     }
 
     public OffsetDateTime getCreatedAt() {

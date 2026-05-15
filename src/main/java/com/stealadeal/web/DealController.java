@@ -8,6 +8,7 @@ import com.stealadeal.domain.DocumentStatus;
 import com.stealadeal.domain.DocumentType;
 import com.stealadeal.domain.FulfillmentStatus;
 import com.stealadeal.domain.FulfillmentType;
+import com.stealadeal.domain.SigningStatus;
 import com.stealadeal.security.AuthenticatedUser;
 import com.stealadeal.service.DealService;
 import jakarta.validation.Valid;
@@ -136,6 +137,15 @@ public class DealController {
             @RequestParam("file") MultipartFile file
     ) {
         return DealDocumentResponse.from(dealService.uploadDealDocumentContent(dealId, documentId, file));
+    }
+
+    @PostMapping("/deals/{dealId}/documents/{documentId}/sign")
+    @PreAuthorize("@accessControl.canAccessDeal(authentication, #dealId)")
+    public DealDocumentResponse requestDocumentSignature(
+            @PathVariable Long dealId,
+            @PathVariable Long documentId
+    ) {
+        return DealDocumentResponse.from(dealService.requestDocumentSignature(dealId, documentId));
     }
 
     @GetMapping("/deals/{dealId}/documents/{documentId}/download")
@@ -314,6 +324,8 @@ public class DealController {
             String contentType,
             Long sizeBytes,
             boolean hasContent,
+            String signingEnvelopeId,
+            SigningStatus signingStatus,
             OffsetDateTime createdAt,
             OffsetDateTime updatedAt
     ) {
@@ -328,6 +340,8 @@ public class DealController {
                     document.getContentType(),
                     document.getSizeBytes(),
                     document.getStorageKey() != null,
+                    document.getSigningEnvelopeId(),
+                    document.getSigningStatus(),
                     document.getCreatedAt(),
                     document.getUpdatedAt()
             );

@@ -9,6 +9,7 @@ import com.stealadeal.domain.DocumentType;
 import com.stealadeal.domain.FulfillmentStatus;
 import com.stealadeal.domain.FulfillmentType;
 import com.stealadeal.domain.ParticipantType;
+import com.stealadeal.domain.SigningStatus;
 import com.stealadeal.domain.UserRole;
 import com.stealadeal.domain.Vehicle;
 import com.stealadeal.domain.VehicleStatus;
@@ -18,6 +19,7 @@ import com.stealadeal.repository.DealDocumentRepository;
 import com.stealadeal.repository.DealRepository;
 import com.stealadeal.repository.VehicleRepository;
 import com.stealadeal.security.AuthenticatedUser;
+import com.stealadeal.service.esign.ESignProvider;
 import com.stealadeal.service.storage.DocumentStorageService;
 import java.io.IOException;
 import java.io.InputStream;
@@ -85,6 +87,7 @@ public class DealService {
     private final TaskNotificationService taskNotificationService;
     private final DocumentStorageService documentStorageService;
     private final DocumentStorageProperties documentStorageProperties;
+    private final ESignProvider eSignProvider;
 
     public DealService(
             DealRepository dealRepository,
@@ -93,7 +96,8 @@ public class DealService {
             VehicleRepository vehicleRepository,
             TaskNotificationService taskNotificationService,
             DocumentStorageService documentStorageService,
-            DocumentStorageProperties documentStorageProperties
+            DocumentStorageProperties documentStorageProperties,
+            ESignProvider eSignProvider
     ) {
         this.dealRepository = dealRepository;
         this.dealActivityRepository = dealActivityRepository;
@@ -102,6 +106,7 @@ public class DealService {
         this.taskNotificationService = taskNotificationService;
         this.documentStorageService = documentStorageService;
         this.documentStorageProperties = documentStorageProperties;
+        this.eSignProvider = eSignProvider;
     }
 
     public record DocumentDownload(DealDocument document, InputStream content) {
@@ -367,6 +372,81 @@ public class DealService {
                 "Document uploaded",
                 saved.getType() + " was uploaded and is ready for review."
         );
+        taskNotificationService.syncForDeal(deal);
+        return saved;
+    }
+
+    public DealDocument requestDocumentSignature(Long dealId, Long documentId) {
+        Deal deal = findDeal(dealId);
+        DealDocument document = dealDocumentRepository.findById(documentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found"));
+        if (!document.getDeal().getId().equals(dealId)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document does not belong to this deal");
+        }
+        if (document.getStorageKey() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Upload the document before requesting signature");
+        }
+        if (document.getSigningStatus() == SigningStatus.SIGNED) {
+            return document;
+        }
+
+        ESignProvider.EnvelopeRef envelope;
+        try (InputStream content = documentStorageService.open(document.getStorageKey())) {
+            envelope = eSignProvider.createEnvelope(new ESignProvider.CreateEnvelopeRequest(
+                    dealId,
+                    documentId,
+                    document.getType().name(),
+                    deal.getBuyerName(),
+                    deal.getBuyerEmail(),
+                    document.getContentType(),
+                    document.getSizeBytes() == null ? 0L : document.getSizeBytes(),
+                    content
+            ));
+        } catch (IOException exception) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to open document for signing");
+        }
+
+        document.setSigningEnvelopeId(envelope.envelopeId());
+        document.setSigningStatus(envelope.status());
+        document.setUpdatedAt(OffsetDateTime.now());
+        DealDocument saved = dealDocumentRepository.save(document);
+
+        recordActivity(deal, "DOCUMENT_SIGNING_REQUESTED",
+                document.getType() + " envelope " + envelope.envelopeId() + " sent to " + deal.getBuyerEmail());
+        taskNotificationService.createNotification(
+                deal,
+                ParticipantType.BUYER,
+                deal.getBuyerEmail(),
+                "Signature requested",
+                "Please sign " + document.getType() + " to continue."
+        );
+        return saved;
+    }
+
+    public DealDocument applyEnvelopeStatusUpdate(String envelopeId, SigningStatus status) {
+        DealDocument document = dealDocumentRepository.findBySigningEnvelopeId(envelopeId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Envelope not found"));
+        SigningStatus previous = document.getSigningStatus();
+        document.setSigningStatus(status);
+        document.setUpdatedAt(OffsetDateTime.now());
+        if (status == SigningStatus.SIGNED) {
+            document.setStatus(DocumentStatus.APPROVED);
+        } else if (status == SigningStatus.DECLINED || status == SigningStatus.EXPIRED) {
+            document.setStatus(DocumentStatus.REJECTED);
+        }
+        DealDocument saved = dealDocumentRepository.save(document);
+        Deal deal = saved.getDeal();
+        recordActivity(deal, "DOCUMENT_SIGNING_STATUS",
+                saved.getType() + " envelope " + envelopeId + " moved from " + previous + " to " + status);
+        if (status == SigningStatus.SIGNED) {
+            taskNotificationService.createNotification(
+                    deal,
+                    ParticipantType.DEALER,
+                    String.valueOf(deal.getVehicle().getDealer().getId()),
+                    "Document signed",
+                    saved.getType() + " was signed by " + deal.getBuyerEmail()
+            );
+        }
         taskNotificationService.syncForDeal(deal);
         return saved;
     }

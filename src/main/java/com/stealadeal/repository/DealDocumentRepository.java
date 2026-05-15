@@ -18,4 +18,6 @@ public interface DealDocumentRepository extends JpaRepository<DealDocument, Long
     List<DealDocument> findByDealVehicleDealerIdAndStatusOrderByUpdatedAtDesc(Long dealerId, DocumentStatus status);
 
     Optional<DealDocument> findByDealIdAndType(Long dealId, DocumentType type);
+
+    Optional<DealDocument> findBySigningEnvelopeId(String signingEnvelopeId);
 }
