@@ -6,12 +6,16 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record NotificationProperties(
         String provider,
         String sesFromAddress,
-        String twilioFromNumber
+        String twilioFromNumber,
+        Integer maxDispatchAttempts
 ) {
 
     public NotificationProperties {
         if (provider == null || provider.isBlank()) {
             provider = "stub";
+        }
+        if (maxDispatchAttempts == null || maxDispatchAttempts < 1) {
+            maxDispatchAttempts = 5;
         }
     }
 }

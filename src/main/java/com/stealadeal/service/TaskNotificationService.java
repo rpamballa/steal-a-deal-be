@@ -9,6 +9,7 @@ import com.stealadeal.domain.DocumentStatus;
 import com.stealadeal.domain.DocumentType;
 import com.stealadeal.domain.FulfillmentStatus;
 import com.stealadeal.domain.Notification;
+import com.stealadeal.domain.NotificationDispatchStatus;
 import com.stealadeal.domain.ParticipantType;
 import com.stealadeal.repository.DealDocumentRepository;
 import com.stealadeal.repository.DealTaskRepository;
@@ -147,25 +148,45 @@ public class TaskNotificationService {
         notification.setMessage(message);
         notification.setRead(false);
         notification.setCreatedAt(OffsetDateTime.now());
+        notification.setDispatchStatus(NotificationDispatchStatus.PENDING);
+        notification.setDispatchAttempts(0);
         Notification saved = notificationRepository.save(notification);
+        // Best-effort inline fast path. Anything that throws stays PENDING
+        // and is retried by NotificationOutboxProcessor.
+        attemptDispatch(saved);
+    }
 
+    /**
+     * Attempt one delivery for a persisted notification. Increments the
+     * attempt counter, marks DISPATCHED on success, and never rolls back
+     * the in-app row on failure. Shared by the inline fast path and the
+     * scheduled outbox retry.
+     */
+    public boolean attemptDispatch(Notification notification) {
+        notification.setDispatchAttempts(notification.getDispatchAttempts() + 1);
         try {
             List<String> channels = notificationDispatcher.dispatch(new NotificationDispatcher.NotificationMessage(
-                    saved.getId(),
-                    recipientType,
-                    recipientReference,
-                    title,
-                    message,
-                    deal == null ? null : deal.getId()
+                    notification.getId(),
+                    notification.getRecipientType(),
+                    notification.getRecipientReference(),
+                    notification.getTitle(),
+                    notification.getMessage(),
+                    notification.getDeal() == null ? null : notification.getDeal().getId()
             ));
             if (channels != null && !channels.isEmpty()) {
-                saved.setDispatchedAt(OffsetDateTime.now());
-                saved.setDispatchChannels(String.join(",", channels));
-                notificationRepository.save(saved);
+                notification.setDispatchedAt(OffsetDateTime.now());
+                notification.setDispatchChannels(String.join(",", channels));
+                notification.setDispatchStatus(NotificationDispatchStatus.DISPATCHED);
+                notificationRepository.save(notification);
+                return true;
             }
+            notificationRepository.save(notification);
+            return false;
         } catch (RuntimeException exception) {
-            // Delivery failure must not roll back the in-app notification.
-            log.warn("[notify] dispatch failed for notification {}: {}", saved.getId(), exception.getMessage());
+            log.warn("[notify] dispatch attempt {} failed for notification {}: {}",
+                    notification.getDispatchAttempts(), notification.getId(), exception.getMessage());
+            notificationRepository.save(notification);
+            return false;
         }
     }
 

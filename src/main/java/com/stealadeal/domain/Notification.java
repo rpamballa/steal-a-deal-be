@@ -44,6 +44,13 @@ public class Notification {
     @Column
     private String dispatchChannels;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    private NotificationDispatchStatus dispatchStatus = NotificationDispatchStatus.PENDING;
+
+    @Column(nullable = false)
+    private int dispatchAttempts;
+
     @Column(nullable = false)
     private OffsetDateTime createdAt;
 
@@ -113,6 +120,22 @@ public class Notification {
 
     public void setDispatchChannels(String dispatchChannels) {
         this.dispatchChannels = dispatchChannels;
+    }
+
+    public NotificationDispatchStatus getDispatchStatus() {
+        return dispatchStatus;
+    }
+
+    public void setDispatchStatus(NotificationDispatchStatus dispatchStatus) {
+        this.dispatchStatus = dispatchStatus;
+    }
+
+    public int getDispatchAttempts() {
+        return dispatchAttempts;
+    }
+
+    public void setDispatchAttempts(int dispatchAttempts) {
+        this.dispatchAttempts = dispatchAttempts;
     }
 
     public OffsetDateTime getCreatedAt() {

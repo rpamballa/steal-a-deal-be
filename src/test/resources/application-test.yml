@@ -5,6 +5,11 @@ spring:
       max-request-size: 25MB
 
 app:
+  notifications:
+    # Keep the scheduled outbox poller from firing mid-suite; tests
+    # drive NotificationOutboxProcessor.drainOutbox() explicitly.
+    outbox-poll-ms: 3600000
+    max-dispatch-attempts: 3
   storage:
     documents:
       provider: local

@@ -367,6 +367,13 @@ Every architectural seam is now in place behind an SPI with a working stub. The 
 - Real DocuSign/Dropbox-Sign adapter for `ESignProvider` — set `app.esign.provider=docusign`
 - Real S3 adapter for `DocumentStorageService` — set `app.storage.documents.provider=s3`
 - Real SES + Twilio adapters for `NotificationDispatcher` — set `app.notifications.provider=ses-twilio`
-- Async outbox + retry for notification dispatch (currently synchronous)
 - DMS integrations (CDK/Reynolds) — Sprint 5, needs vendor API access
+
+### 2026-05-15 — Notification outbox landed
+
+| Gap | Status | Notes |
+|---|---|---|
+| Async outbox + retry for notifications | **Closed** | `dispatch_status`/`dispatch_attempts` (V10), best-effort inline first attempt + `NotificationOutboxProcessor` `@Scheduled` retry with bounded attempts, FAILED terminal state. `app.notifications.max-dispatch-attempts` / `outbox-poll-ms` configurable. |
+
+All backend gaps that do not require external vendor credentials are now closed. The only remaining work is registering real vendor adapter beans (Stripe / DocuSign / S3 / SES / Twilio) once credentials are provisioned, and the Sprint 5 DMS integrations.
 

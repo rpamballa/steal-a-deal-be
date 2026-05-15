@@ -519,6 +519,36 @@ class StealADealValidationTests {
                 .andExpect(jsonPath("$.chargeId").isNotEmpty());
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.stealadeal.repository.NotificationRepository notificationRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.stealadeal.service.NotificationOutboxProcessor notificationOutboxProcessor;
+
+    @Test
+    void pendingNotificationIsDeliveredByOutboxProcessor() throws Exception {
+        com.stealadeal.domain.Notification pending = new com.stealadeal.domain.Notification();
+        pending.setRecipientType(com.stealadeal.domain.ParticipantType.BUYER);
+        pending.setRecipientReference("outbox-buyer@example.com");
+        pending.setTitle("Pending delivery");
+        pending.setMessage("This row was left PENDING by a failed inline attempt.");
+        pending.setRead(false);
+        pending.setCreatedAt(java.time.OffsetDateTime.now());
+        pending.setDispatchStatus(com.stealadeal.domain.NotificationDispatchStatus.PENDING);
+        pending.setDispatchAttempts(0);
+        com.stealadeal.domain.Notification savedPending = notificationRepository.save(pending);
+
+        int delivered = notificationOutboxProcessor.drainOutbox();
+        org.junit.jupiter.api.Assertions.assertTrue(delivered >= 1);
+
+        com.stealadeal.domain.Notification refreshed =
+                notificationRepository.findById(savedPending.getId()).orElseThrow();
+        org.junit.jupiter.api.Assertions.assertEquals(
+                com.stealadeal.domain.NotificationDispatchStatus.DISPATCHED, refreshed.getDispatchStatus());
+        org.junit.jupiter.api.Assertions.assertEquals("email,sms", refreshed.getDispatchChannels());
+        org.junit.jupiter.api.Assertions.assertNotNull(refreshed.getDispatchedAt());
+    }
+
     @Test
     void notificationsAreDispatchedOnExternalChannels() throws Exception {
         long dealerId = createAndApproveDealer();
