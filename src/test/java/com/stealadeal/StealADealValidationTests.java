@@ -323,6 +323,106 @@ class StealADealValidationTests {
     }
 
     @Test
+    void fAndIProductAttachesToDealAndComputesRevenueShare() throws Exception {
+        String adminToken = login("admin@stealadeal.local", "Admin123!");
+        long dealerId = createAndApproveDealer();
+        long vehicleId = createVehicle(dealerId);
+        String buyerEmail = "buyer+" + System.nanoTime() + "@example.com";
+        String buyerToken = registerBuyerUser(buyerEmail);
+        String dealerToken = registerDealerUser(dealerId, "dealer-fni+" + dealerId + "@example.com");
+
+        MvcResult productResult = mockMvc.perform(post("/api/fni/products")
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "type": "EXTENDED_WARRANTY",
+                                  "name": "5yr / 60k Powertrain",
+                                  "retailPrice": 2500.00,
+                                  "revenueShareRate": 0.07
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.active").value(true))
+                .andReturn();
+        long productId = Long.parseLong(extractNumber(productResult.getResponse().getContentAsString(), "id"));
+
+        // dealer can list active catalog
+        mockMvc.perform(get("/api/fni/products").header("Authorization", bearer(dealerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].name").value("5yr / 60k Powertrain"));
+
+        mockMvc.perform(post("/api/deals")
+                        .header("Authorization", bearer(buyerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "vehicleId": %d,
+                                  "buyerName": "FnI Buyer",
+                                  "buyerEmail": "%s",
+                                  "buyerPhone": "4085550155",
+                                  "buyerAddressLine1": "1 FnI Way",
+                                  "buyerCity": "San Jose",
+                                  "buyerState": "CA",
+                                  "buyerPostalCode": "95112",
+                                  "fulfillmentType": "PICKUP",
+                                  "tradeIn": false,
+                                  "tradeInOffer": 0.00,
+                                  "deliveryFee": 0.00,
+                                  "discountAmount": 0.00
+                                }
+                                """.formatted(vehicleId, buyerEmail)))
+                .andExpect(status().isCreated());
+        long dealId = dealRepository.findAll().stream()
+                .max(Comparator.comparing(deal -> deal.getId()))
+                .orElseThrow()
+                .getId();
+
+        mockMvc.perform(post("/api/deals/" + dealId + "/fni")
+                        .header("Authorization", bearer(dealerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"productId\":" + productId + "}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.price").value(2500.00))
+                .andExpect(jsonPath("$.revenueShareAmount").value(175.00));
+
+        mockMvc.perform(get("/api/deals/" + dealId + "/fni")
+                        .header("Authorization", bearer(dealerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalRetail").value(2500.00))
+                .andExpect(jsonPath("$.totalPlatformRevenue").value(175.00))
+                .andExpect(jsonPath("$.items.length()").value(1));
+
+        // non-admin cannot create catalog products
+        mockMvc.perform(post("/api/fni/products")
+                        .header("Authorization", bearer(dealerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "type": "GAP_INSURANCE",
+                                  "name": "GAP",
+                                  "retailPrice": 800.00,
+                                  "revenueShareRate": 0.10
+                                }
+                                """))
+                .andExpect(status().isForbidden());
+    }
+
+    private String extractNumber(String json, String field) {
+        String marker = "\"" + field + "\":";
+        int start = json.indexOf(marker);
+        if (start < 0) {
+            return "0";
+        }
+        start += marker.length();
+        int end = start;
+        while (end < json.length() && (Character.isDigit(json.charAt(end)))) {
+            end++;
+        }
+        return json.substring(start, end);
+    }
+
+    @Test
     void auditTrailRecordsDealerApprovalAndIsAdminOnly() throws Exception {
         long dealerId = createAndApproveDealer();
         String adminToken = login("admin@stealadeal.local", "Admin123!");

@@ -347,13 +347,26 @@ If any of the above is missing at Month 5, the Month-12/18/24 milestones on slid
 | §4.2 CI | **Closed** | `.github/workflows/ci.yml` runs build + JaCoCo coverage gate + Docker build with Buildx cache |
 | §3.3 Stripe — architecture seam only | **Partially closed** | `BillingProvider` SPI + `LoggingBillingProvider` stub + `app.billing.provider` config + webhook endpoint at `/api/webhooks/billing` + V2 migration adding `billing_customer_id`, `billing_subscription_id`, `payment_method_id`. Real Stripe SDK + API keys still required to flip from stub to live billing. |
 
-### Still outstanding before Month-5 first-billing milestone
+### 2026-05-15 — Sprint 2 + F&I landed
 
-- Real Stripe SDK adapter (drop-in once API keys exist) — implementation hook is at `service/billing/`
-- Real deposit payments via Stripe PaymentIntent (replaces simulated `POST /api/deals/{id}/deposit`)
-- Per-deal transaction-fee schema + settlement
-- F&I product model + revenue share
-- S3-backed document storage with presigned URLs (deal-room is still fiction without it)
-- E-sign integration (DocuSign or Dropbox Sign) for `BUYER_AGREEMENT`
-- Email transport (SES/SendGrid) + SMS (Twilio) for notifications
+| Gap | Status | Notes |
+|---|---|---|
+| S2.1 Document storage | **Closed** | `DocumentStorageService` SPI + local FS adapter; real upload/download endpoints; `storage_key`/`content_type`/`size_bytes` (V3) |
+| S2.2 E-sign | **Closed** | `ESignProvider` SPI + stub; envelope lifecycle + `/api/webhooks/esign`; `signing_envelope_id`/`signing_status` (V4) |
+| S2.3 Real deposit flow | **Closed** | Deposit intent + webhook confirmation via `BillingProvider`; `deposit_intent_id` (V5); manual path kept for dev |
+| S2.4 Notification dispatch | **Closed** | `NotificationDispatcher` SPI + email/SMS stub; `dispatched_at`/`dispatch_channels` (V6) |
+| S2.5 Per-deal transaction fee | **Closed** | `TransactionFeeService`, settles at COMPLETED via `BillingProvider`; `platform_fee_*` (V7); `GET /deals/{id}/platform-fee` |
+| S2.6 Audit log | **Closed** | `audit_event` (V8), `AuditService`, admin `GET /api/audit`; wired into approval/stage/deposit/subscription |
+| S4.1 F&I products + revenue share | **Closed** | `FAndIProduct` + `DealFAndIProduct` (V9); catalog admin + per-deal attach with snapshotted revenue share; `/api/fni/*` |
+
+### Still outstanding — requires external vendor credentials only
+
+Every architectural seam is now in place behind an SPI with a working stub. The remaining work is **registering a real vendor adapter bean + supplying credentials** — no further refactoring:
+
+- Real Stripe adapter for `BillingProvider` (subscription, deposit PaymentIntent, transaction-fee transfer) — set `app.billing.provider=stripe`
+- Real DocuSign/Dropbox-Sign adapter for `ESignProvider` — set `app.esign.provider=docusign`
+- Real S3 adapter for `DocumentStorageService` — set `app.storage.documents.provider=s3`
+- Real SES + Twilio adapters for `NotificationDispatcher` — set `app.notifications.provider=ses-twilio`
+- Async outbox + retry for notification dispatch (currently synchronous)
+- DMS integrations (CDK/Reynolds) — Sprint 5, needs vendor API access
 
