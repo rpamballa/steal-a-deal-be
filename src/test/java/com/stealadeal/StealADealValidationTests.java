@@ -323,6 +323,52 @@ class StealADealValidationTests {
     }
 
     @Test
+    void notificationsAreDispatchedOnExternalChannels() throws Exception {
+        long dealerId = createAndApproveDealer();
+        long vehicleId = createVehicle(dealerId);
+        String buyerEmail = "buyer+" + System.nanoTime() + "@example.com";
+        String buyerToken = registerBuyerUser(buyerEmail);
+        String dealerToken = registerDealerUser(dealerId, "dealer-notify+" + dealerId + "@example.com");
+
+        mockMvc.perform(post("/api/deals")
+                        .header("Authorization", bearer(buyerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "vehicleId": %d,
+                                  "buyerName": "Notify Buyer",
+                                  "buyerEmail": "%s",
+                                  "buyerPhone": "4085550133",
+                                  "buyerAddressLine1": "1 Notify Way",
+                                  "buyerCity": "San Jose",
+                                  "buyerState": "CA",
+                                  "buyerPostalCode": "95112",
+                                  "fulfillmentType": "PICKUP",
+                                  "tradeIn": false,
+                                  "tradeInOffer": 0.00,
+                                  "deliveryFee": 0.00,
+                                  "discountAmount": 0.00
+                                }
+                                """.formatted(vehicleId, buyerEmail)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/notifications")
+                        .header("Authorization", bearer(dealerToken))
+                        .param("recipientType", "DEALER")
+                        .param("recipientReference", String.valueOf(dealerId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].dispatchedAt").isNotEmpty())
+                .andExpect(jsonPath("$[0].dispatchChannels").value("email"));
+
+        mockMvc.perform(get("/api/notifications")
+                        .header("Authorization", bearer(buyerToken))
+                        .param("recipientType", "BUYER")
+                        .param("recipientReference", buyerEmail))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].dispatchChannels").value("email,sms"));
+    }
+
+    @Test
     void depositIntentConfirmedViaWebhookMarksDealPaid() throws Exception {
         long dealerId = createAndApproveDealer();
         long vehicleId = createVehicle(dealerId);

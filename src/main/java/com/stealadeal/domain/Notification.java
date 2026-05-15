@@ -38,6 +38,12 @@ public class Notification {
     @Column(nullable = false)
     private boolean read;
 
+    @Column
+    private OffsetDateTime dispatchedAt;
+
+    @Column
+    private String dispatchChannels;
+
     @Column(nullable = false)
     private OffsetDateTime createdAt;
 
@@ -91,6 +97,22 @@ public class Notification {
 
     public void setRead(boolean read) {
         this.read = read;
+    }
+
+    public OffsetDateTime getDispatchedAt() {
+        return dispatchedAt;
+    }
+
+    public void setDispatchedAt(OffsetDateTime dispatchedAt) {
+        this.dispatchedAt = dispatchedAt;
+    }
+
+    public String getDispatchChannels() {
+        return dispatchChannels;
+    }
+
+    public void setDispatchChannels(String dispatchChannels) {
+        this.dispatchChannels = dispatchChannels;
     }
 
     public OffsetDateTime getCreatedAt() {

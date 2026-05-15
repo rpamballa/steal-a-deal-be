@@ -13,8 +13,11 @@ import com.stealadeal.domain.ParticipantType;
 import com.stealadeal.repository.DealDocumentRepository;
 import com.stealadeal.repository.DealTaskRepository;
 import com.stealadeal.repository.NotificationRepository;
+import com.stealadeal.service.notify.NotificationDispatcher;
 import java.time.OffsetDateTime;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,18 +35,23 @@ public class TaskNotificationService {
     private static final String DEALER_SCHEDULE = "dealer-schedule-fulfillment";
     private static final String DEALER_HANDOFF = "dealer-complete-handoff";
 
+    private static final Logger log = LoggerFactory.getLogger(TaskNotificationService.class);
+
     private final DealTaskRepository dealTaskRepository;
     private final NotificationRepository notificationRepository;
     private final DealDocumentRepository dealDocumentRepository;
+    private final NotificationDispatcher notificationDispatcher;
 
     public TaskNotificationService(
             DealTaskRepository dealTaskRepository,
             NotificationRepository notificationRepository,
-            DealDocumentRepository dealDocumentRepository
+            DealDocumentRepository dealDocumentRepository,
+            NotificationDispatcher notificationDispatcher
     ) {
         this.dealTaskRepository = dealTaskRepository;
         this.notificationRepository = notificationRepository;
         this.dealDocumentRepository = dealDocumentRepository;
+        this.notificationDispatcher = notificationDispatcher;
     }
 
     public void syncForDeal(Deal deal) {
@@ -139,7 +147,26 @@ public class TaskNotificationService {
         notification.setMessage(message);
         notification.setRead(false);
         notification.setCreatedAt(OffsetDateTime.now());
-        notificationRepository.save(notification);
+        Notification saved = notificationRepository.save(notification);
+
+        try {
+            List<String> channels = notificationDispatcher.dispatch(new NotificationDispatcher.NotificationMessage(
+                    saved.getId(),
+                    recipientType,
+                    recipientReference,
+                    title,
+                    message,
+                    deal == null ? null : deal.getId()
+            ));
+            if (channels != null && !channels.isEmpty()) {
+                saved.setDispatchedAt(OffsetDateTime.now());
+                saved.setDispatchChannels(String.join(",", channels));
+                notificationRepository.save(saved);
+            }
+        } catch (RuntimeException exception) {
+            // Delivery failure must not roll back the in-app notification.
+            log.warn("[notify] dispatch failed for notification {}: {}", saved.getId(), exception.getMessage());
+        }
     }
 
     private void upsertTask(
