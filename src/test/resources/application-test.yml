@@ -1,0 +1,12 @@
+spring:
+  servlet:
+    multipart:
+      max-file-size: 25MB
+      max-request-size: 25MB
+
+app:
+  storage:
+    documents:
+      provider: local
+      root: ${java.io.tmpdir}/stealadeal-tests/documents
+      max-bytes: 5242880

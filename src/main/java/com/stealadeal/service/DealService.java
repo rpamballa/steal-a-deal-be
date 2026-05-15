@@ -12,11 +12,15 @@ import com.stealadeal.domain.ParticipantType;
 import com.stealadeal.domain.UserRole;
 import com.stealadeal.domain.Vehicle;
 import com.stealadeal.domain.VehicleStatus;
+import com.stealadeal.config.DocumentStorageProperties;
 import com.stealadeal.repository.DealActivityRepository;
 import com.stealadeal.repository.DealDocumentRepository;
 import com.stealadeal.repository.DealRepository;
 import com.stealadeal.repository.VehicleRepository;
 import com.stealadeal.security.AuthenticatedUser;
+import com.stealadeal.service.storage.DocumentStorageService;
+import java.io.IOException;
+import java.io.InputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.OffsetDateTime;
@@ -25,6 +29,7 @@ import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -78,19 +83,28 @@ public class DealService {
     private final DealDocumentRepository dealDocumentRepository;
     private final VehicleRepository vehicleRepository;
     private final TaskNotificationService taskNotificationService;
+    private final DocumentStorageService documentStorageService;
+    private final DocumentStorageProperties documentStorageProperties;
 
     public DealService(
             DealRepository dealRepository,
             DealActivityRepository dealActivityRepository,
             DealDocumentRepository dealDocumentRepository,
             VehicleRepository vehicleRepository,
-            TaskNotificationService taskNotificationService
+            TaskNotificationService taskNotificationService,
+            DocumentStorageService documentStorageService,
+            DocumentStorageProperties documentStorageProperties
     ) {
         this.dealRepository = dealRepository;
         this.dealActivityRepository = dealActivityRepository;
         this.dealDocumentRepository = dealDocumentRepository;
         this.vehicleRepository = vehicleRepository;
         this.taskNotificationService = taskNotificationService;
+        this.documentStorageService = documentStorageService;
+        this.documentStorageProperties = documentStorageProperties;
+    }
+
+    public record DocumentDownload(DealDocument document, InputStream content) {
     }
 
     @Transactional(readOnly = true)
@@ -287,6 +301,93 @@ public class DealService {
         );
         taskNotificationService.syncForDeal(deal);
         return document;
+    }
+
+    public DealDocument uploadDealDocumentContent(Long dealId, Long documentId, MultipartFile file) {
+        Deal deal = findDeal(dealId);
+        DealDocument document = dealDocumentRepository.findById(documentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found"));
+        if (!document.getDeal().getId().equals(dealId)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document does not belong to this deal");
+        }
+        if (file == null || file.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Upload file is required");
+        }
+        if (file.getSize() > documentStorageProperties.maxBytes()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "File exceeds maximum allowed size of " + documentStorageProperties.maxBytes() + " bytes");
+        }
+        String contentType = file.getContentType();
+        if (contentType == null || !documentStorageProperties.allowedContentTypes().contains(contentType)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Unsupported content type: " + contentType);
+        }
+
+        DocumentStorageService.StoredObject stored;
+        try (InputStream content = file.getInputStream()) {
+            stored = documentStorageService.store(new DocumentStorageService.StoreRequest(
+                    contentType,
+                    file.getSize(),
+                    content
+            ));
+        } catch (IOException exception) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to store document");
+        }
+
+        String oldStorageKey = document.getStorageKey();
+        document.setStorageKey(stored.storageKey());
+        document.setContentType(stored.contentType());
+        document.setSizeBytes(stored.sizeBytes());
+        String originalName = file.getOriginalFilename();
+        if (originalName != null && !originalName.isBlank()) {
+            document.setFileName(originalName);
+        }
+        document.setStatus(DocumentStatus.UPLOADED);
+        document.setUpdatedAt(OffsetDateTime.now());
+        DealDocument saved = dealDocumentRepository.save(document);
+
+        if (oldStorageKey != null && !oldStorageKey.equals(stored.storageKey())) {
+            try {
+                documentStorageService.delete(oldStorageKey);
+            } catch (IOException ignored) {
+                // best-effort cleanup
+            }
+        }
+
+        if (deal.getStage() == DealStage.DEPOSIT_PAID || deal.getStage() == DealStage.INITIATED) {
+            deal.setStage(DealStage.DOCUMENTS_PENDING);
+            deal.setUpdatedAt(OffsetDateTime.now());
+            dealRepository.save(deal);
+        }
+        recordActivity(deal, "DOCUMENT_UPLOADED", saved.getType() + " uploaded (" + saved.getSizeBytes() + " bytes)");
+        taskNotificationService.createNotification(
+                deal,
+                ParticipantType.DEALER,
+                String.valueOf(deal.getVehicle().getDealer().getId()),
+                "Document uploaded",
+                saved.getType() + " was uploaded and is ready for review."
+        );
+        taskNotificationService.syncForDeal(deal);
+        return saved;
+    }
+
+    @Transactional(readOnly = true)
+    public DocumentDownload downloadDealDocumentContent(Long dealId, Long documentId) {
+        findDeal(dealId);
+        DealDocument document = dealDocumentRepository.findById(documentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found"));
+        if (!document.getDeal().getId().equals(dealId)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document does not belong to this deal");
+        }
+        if (document.getStorageKey() == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Document has no stored content");
+        }
+        try {
+            InputStream content = documentStorageService.open(document.getStorageKey());
+            return new DocumentDownload(document, content);
+        } catch (IOException exception) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to open document");
+        }
     }
 
     public DealDocument updateDocumentStatus(Long dealId, Long documentId, DocumentStatus status) {

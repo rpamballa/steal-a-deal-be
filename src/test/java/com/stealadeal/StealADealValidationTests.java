@@ -4,9 +4,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.stealadeal.repository.DealDocumentRepository;
 import com.stealadeal.repository.DealRepository;
 import com.stealadeal.repository.DealTaskRepository;
 import com.stealadeal.repository.DealerRepository;
@@ -43,6 +45,9 @@ class StealADealValidationTests {
 
     @Autowired
     private DealTaskRepository dealTaskRepository;
+
+    @Autowired
+    private DealDocumentRepository dealDocumentRepository;
 
     @Test
     void inventoryUploadRejectsUnapprovedDealer() throws Exception {
@@ -198,6 +203,113 @@ class StealADealValidationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].status").value("OPEN"))
                 .andExpect(jsonPath("$[0].amount").value(1499.00));
+    }
+
+    @Test
+    void documentUploadStoresContentAndDownloadReturnsBytes() throws Exception {
+        long dealerId = createAndApproveDealer();
+        long vehicleId = createVehicle(dealerId);
+        String buyerEmail = "buyer+" + System.nanoTime() + "@example.com";
+        String buyerToken = registerBuyerUser(buyerEmail);
+
+        mockMvc.perform(post("/api/deals")
+                        .header("Authorization", bearer(buyerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "vehicleId": %d,
+                                  "buyerName": "Doc Buyer",
+                                  "buyerEmail": "%s",
+                                  "buyerPhone": "4085550100",
+                                  "buyerAddressLine1": "1 Test Way",
+                                  "buyerCity": "San Jose",
+                                  "buyerState": "CA",
+                                  "buyerPostalCode": "95112",
+                                  "fulfillmentType": "PICKUP",
+                                  "tradeIn": false,
+                                  "tradeInOffer": 0.00,
+                                  "deliveryFee": 0.00,
+                                  "discountAmount": 0.00
+                                }
+                                """.formatted(vehicleId, buyerEmail)))
+                .andExpect(status().isCreated());
+
+        long dealId = dealRepository.findAll().stream()
+                .max(Comparator.comparing(deal -> deal.getId()))
+                .orElseThrow()
+                .getId();
+        var doc = dealDocumentRepository.findByDealId(dealId).stream()
+                .filter(d -> d.getType().name().equals("DRIVER_LICENSE"))
+                .findFirst()
+                .orElseThrow();
+
+        byte[] payload = "%PDF-1.4 fake content".getBytes();
+        org.springframework.mock.web.MockMultipartFile pdf = new org.springframework.mock.web.MockMultipartFile(
+                "file", "license.pdf", "application/pdf", payload);
+
+        mockMvc.perform(multipart("/api/deals/" + dealId + "/documents/" + doc.getId() + "/upload")
+                        .file(pdf)
+                        .header("Authorization", bearer(buyerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UPLOADED"))
+                .andExpect(jsonPath("$.fileName").value("license.pdf"))
+                .andExpect(jsonPath("$.contentType").value("application/pdf"))
+                .andExpect(jsonPath("$.sizeBytes").value(payload.length))
+                .andExpect(jsonPath("$.hasContent").value(true));
+
+        mockMvc.perform(get("/api/deals/" + dealId + "/documents/" + doc.getId() + "/download")
+                        .header("Authorization", bearer(buyerToken)))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", "application/pdf"))
+                .andExpect(header().string("Content-Disposition", "attachment; filename=\"license.pdf\""))
+                .andExpect(mvcResult ->
+                        org.junit.jupiter.api.Assertions.assertArrayEquals(payload, mvcResult.getResponse().getContentAsByteArray()));
+    }
+
+    @Test
+    void documentUploadRejectsUnsupportedContentType() throws Exception {
+        long dealerId = createAndApproveDealer();
+        long vehicleId = createVehicle(dealerId);
+        String buyerEmail = "buyer+" + System.nanoTime() + "@example.com";
+        String buyerToken = registerBuyerUser(buyerEmail);
+
+        mockMvc.perform(post("/api/deals")
+                        .header("Authorization", bearer(buyerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "vehicleId": %d,
+                                  "buyerName": "Doc Buyer",
+                                  "buyerEmail": "%s",
+                                  "buyerPhone": "4085550100",
+                                  "buyerAddressLine1": "1 Test Way",
+                                  "buyerCity": "San Jose",
+                                  "buyerState": "CA",
+                                  "buyerPostalCode": "95112",
+                                  "fulfillmentType": "PICKUP",
+                                  "tradeIn": false,
+                                  "tradeInOffer": 0.00,
+                                  "deliveryFee": 0.00,
+                                  "discountAmount": 0.00
+                                }
+                                """.formatted(vehicleId, buyerEmail)))
+                .andExpect(status().isCreated());
+
+        long dealId = dealRepository.findAll().stream()
+                .max(Comparator.comparing(deal -> deal.getId()))
+                .orElseThrow()
+                .getId();
+        var doc = dealDocumentRepository.findByDealId(dealId).stream()
+                .findFirst()
+                .orElseThrow();
+
+        org.springframework.mock.web.MockMultipartFile bad = new org.springframework.mock.web.MockMultipartFile(
+                "file", "evil.exe", "application/x-msdownload", new byte[] {1, 2, 3});
+
+        mockMvc.perform(multipart("/api/deals/" + dealId + "/documents/" + doc.getId() + "/upload")
+                        .file(bad)
+                        .header("Authorization", bearer(buyerToken)))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

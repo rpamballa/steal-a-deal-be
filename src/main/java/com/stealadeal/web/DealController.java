@@ -20,9 +20,14 @@ import jakarta.validation.constraints.Pattern;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -121,6 +126,37 @@ public class DealController {
             @Valid @RequestBody UpdateDealDocumentStatusRequest request
     ) {
         return DealDocumentResponse.from(dealService.updateDocumentStatus(dealId, documentId, request.status()));
+    }
+
+    @PostMapping(value = "/deals/{dealId}/documents/{documentId}/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("@accessControl.canAccessDeal(authentication, #dealId)")
+    public DealDocumentResponse uploadDocument(
+            @PathVariable Long dealId,
+            @PathVariable Long documentId,
+            @RequestParam("file") MultipartFile file
+    ) {
+        return DealDocumentResponse.from(dealService.uploadDealDocumentContent(dealId, documentId, file));
+    }
+
+    @GetMapping("/deals/{dealId}/documents/{documentId}/download")
+    @PreAuthorize("@accessControl.canAccessDeal(authentication, #dealId)")
+    public ResponseEntity<InputStreamResource> downloadDocument(
+            @PathVariable Long dealId,
+            @PathVariable Long documentId
+    ) {
+        DealService.DocumentDownload download = dealService.downloadDealDocumentContent(dealId, documentId);
+        String contentType = download.document().getContentType() != null
+                ? download.document().getContentType()
+                : MediaType.APPLICATION_OCTET_STREAM_VALUE;
+        Long size = download.document().getSizeBytes();
+        ResponseEntity.BodyBuilder response = ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"" + download.document().getFileName() + "\"")
+                .contentType(MediaType.parseMediaType(contentType));
+        if (size != null) {
+            response = response.contentLength(size);
+        }
+        return response.body(new InputStreamResource(download.content()));
     }
 
     @PatchMapping("/deals/{dealId}/fulfillment")
@@ -275,6 +311,9 @@ public class DealController {
             DocumentType type,
             DocumentStatus status,
             String fileName,
+            String contentType,
+            Long sizeBytes,
+            boolean hasContent,
             OffsetDateTime createdAt,
             OffsetDateTime updatedAt
     ) {
@@ -286,6 +325,9 @@ public class DealController {
                     document.getType(),
                     document.getStatus(),
                     document.getFileName(),
+                    document.getContentType(),
+                    document.getSizeBytes(),
+                    document.getStorageKey() != null,
                     document.getCreatedAt(),
                     document.getUpdatedAt()
             );
