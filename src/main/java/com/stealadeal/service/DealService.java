@@ -91,6 +91,7 @@ public class DealService {
     private final ESignProvider eSignProvider;
     private final BillingProvider billingProvider;
     private final TransactionFeeService transactionFeeService;
+    private final AuditService auditService;
 
     public DealService(
             DealRepository dealRepository,
@@ -102,7 +103,8 @@ public class DealService {
             DocumentStorageProperties documentStorageProperties,
             ESignProvider eSignProvider,
             BillingProvider billingProvider,
-            TransactionFeeService transactionFeeService
+            TransactionFeeService transactionFeeService,
+            AuditService auditService
     ) {
         this.dealRepository = dealRepository;
         this.dealActivityRepository = dealActivityRepository;
@@ -114,6 +116,7 @@ public class DealService {
         this.eSignProvider = eSignProvider;
         this.billingProvider = billingProvider;
         this.transactionFeeService = transactionFeeService;
+        this.auditService = auditService;
     }
 
     public record DepositIntentView(String intentId, String clientSecret, String status, BigDecimal amount) {
@@ -275,6 +278,8 @@ public class DealService {
         }
         Deal savedDeal = dealRepository.save(deal);
         recordActivity(savedDeal, "STAGE_CHANGED", "Deal stage changed from " + previousStage + " to " + savedDeal.getStage());
+        auditService.record("DEAL_STAGE_CHANGED", "Deal", savedDeal.getId(), savedDeal.getId(),
+                previousStage + " -> " + savedDeal.getStage());
         if (nextStage == DealStage.COMPLETED) {
             savedDeal = transactionFeeService.settleForCompletedDeal(savedDeal);
             if (savedDeal.isPlatformFeeSettled()) {
@@ -350,6 +355,8 @@ public class DealService {
         vehicleRepository.save(vehicle);
         Deal savedDeal = dealRepository.save(deal);
         recordActivity(savedDeal, "DEPOSIT_PAID", "Deposit recorded in the amount of " + amount.setScale(2, RoundingMode.HALF_UP));
+        auditService.record("DEAL_DEPOSIT_PAID", "Deal", savedDeal.getId(), savedDeal.getId(),
+                "Deposit " + amount.setScale(2, RoundingMode.HALF_UP) + " recorded");
         taskNotificationService.createNotification(
                 savedDeal,
                 ParticipantType.DEALER,

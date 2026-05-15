@@ -13,9 +13,11 @@ import org.springframework.web.server.ResponseStatusException;
 public class DealerService {
 
     private final DealerRepository dealerRepository;
+    private final AuditService auditService;
 
-    public DealerService(DealerRepository dealerRepository) {
+    public DealerService(DealerRepository dealerRepository, AuditService auditService) {
         this.dealerRepository = dealerRepository;
+        this.auditService = auditService;
     }
 
     @Transactional(readOnly = true)
@@ -42,7 +44,15 @@ public class DealerService {
     public Dealer updateDealerApproval(Long dealerId, boolean approved) {
         Dealer dealer = getDealer(dealerId);
         dealer.setApproved(approved);
-        return dealerRepository.save(dealer);
+        Dealer saved = dealerRepository.save(dealer);
+        auditService.record(
+                "DEALER_APPROVAL_CHANGED",
+                "Dealer",
+                dealerId,
+                null,
+                "Dealer " + dealerId + " approved=" + approved
+        );
+        return saved;
     }
 
     public Dealer updateDealer(Long dealerId, String name, String licenseNumber, String city, String state) {

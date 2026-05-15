@@ -323,6 +323,25 @@ class StealADealValidationTests {
     }
 
     @Test
+    void auditTrailRecordsDealerApprovalAndIsAdminOnly() throws Exception {
+        long dealerId = createAndApproveDealer();
+        String adminToken = login("admin@stealadeal.local", "Admin123!");
+        String dealerToken = registerDealerUser(dealerId, "dealer-audit+" + dealerId + "@example.com");
+
+        mockMvc.perform(get("/api/audit")
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.action=='DEALER_APPROVAL_CHANGED')]").isNotEmpty());
+
+        mockMvc.perform(get("/api/audit")
+                        .header("Authorization", bearer(dealerToken)))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/audit"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void platformFeeIsProjectedBeforeCompletionAndSettledOnCompletion() throws Exception {
         long dealerId = createAndApproveDealer();
         long vehicleId = createVehicle(dealerId);

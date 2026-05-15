@@ -185,6 +185,7 @@ public class DealerPortalService {
     private final DealService dealService;
     private final InboxService inboxService;
     private final BillingProvider billingProvider;
+    private final AuditService auditService;
 
     public DealerPortalService(
             DealerService dealerService,
@@ -199,7 +200,8 @@ public class DealerPortalService {
             TaskNotificationService taskNotificationService,
             DealService dealService,
             InboxService inboxService,
-            BillingProvider billingProvider
+            BillingProvider billingProvider,
+            AuditService auditService
     ) {
         this.dealerService = dealerService;
         this.vehicleRepository = vehicleRepository;
@@ -214,6 +216,7 @@ public class DealerPortalService {
         this.dealService = dealService;
         this.inboxService = inboxService;
         this.billingProvider = billingProvider;
+        this.auditService = auditService;
     }
 
     public DealerPortal getDealerPortal(Long dealerId) {
@@ -413,6 +416,8 @@ public class DealerPortalService {
         }
 
         DealerSubscription savedSubscription = dealerSubscriptionRepository.save(subscription);
+        auditService.record("SUBSCRIPTION_UPDATED", "DealerSubscription", savedSubscription.getId(), null,
+                "Dealer " + dealerId + " " + previousStatus + " -> " + status + " plan=" + plan);
 
         if (status == SubscriptionStatus.ACTIVE && dealerInvoiceRepository.findByDealerIdOrderByCreatedAtDesc(dealerId).isEmpty()) {
             dealerInvoiceRepository.save(createInvoice(
