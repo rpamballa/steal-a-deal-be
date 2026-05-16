@@ -1,4 +1,10 @@
 spring:
+  datasource:
+    # Unique in-memory DB per Spring context so test classes (and
+    # DirtiesContext rebuilds) never share state. The default named
+    # DB in application.yml (DB_CLOSE_DELAY=-1) is JVM-shared, which
+    # made absolute-count assertions order-dependent and flaky.
+    url: jdbc:h2:mem:test-${random.uuid};DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
   servlet:
     multipart:
       max-file-size: 25MB
