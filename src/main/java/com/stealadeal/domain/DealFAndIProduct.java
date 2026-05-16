@@ -7,6 +7,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 
@@ -16,6 +17,7 @@ import java.time.OffsetDateTime;
  * change a buyer's signed deal or the booked platform revenue.
  */
 @Entity
+@Table(name = "deal_f_and_i_product")
 public class DealFAndIProduct {
 
     @Id
