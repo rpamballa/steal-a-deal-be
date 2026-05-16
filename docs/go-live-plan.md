@@ -154,6 +154,7 @@ real deal end-to-end" milestone.
 | SPA deep link / refresh → 404 | High | `SpaForwardingController` + SecurityConfig regex permit |
 | No container/LB health probe | High | `spring-boot-starter-actuator`; public `/actuator/health[/readiness|/liveness]` |
 | CORS hard-coded to localhost | Medium | `CORS_ALLOWED_ORIGINS` env, prod default non-localhost |
+| F&I entities had no `@Table`; prod `validate` failed on Postgres (acronym class → `dealfandiproduct` vs migration `deal_f_and_i_product`) | **Critical** | Explicit `@Table` on `FAndIProduct`/`DealFAndIProduct`; verified by booting prod profile against Docker Postgres |
 
 Tested: full suite green (deterministic since the per-context test-DB
 isolation fix); added coverage for the SPA forward and the public
@@ -161,9 +162,18 @@ health endpoint.
 
 ## Known residual risks (explicit, not yet mitigated)
 
-1. **Flyway V1–V13 unverified on real Postgres** — no Docker/PG host
-   available in this environment. Phase 2 is the gating execution
-   risk.
+1. **Flyway V1–V13 verified on real Postgres (2026-05-16).** Booted
+   the prod profile against Postgres 16 (Docker): Flyway "Successfully
+   validated 13 migrations", schema up to date, Hibernate `validate`
+   passes, app starts, `/actuator/health` UP, `/api/vehicles` empty
+   (demo seed correctly OFF in prod), SPA deep link serves the shell.
+   This run found and fixed a real blocker: `FAndIProduct` /
+   `DealFAndIProduct` had no `@Table`, so Hibernate derived
+   `fandiproduct`/`dealfandiproduct` while V9 created
+   `f_and_i_product`/`deal_f_and_i_product` — invisible on H2
+   (`ddl-auto=update`), fatal on prod `validate`. Pinned explicit
+   `@Table` names. Re-run is clean. Remaining: run against the actual
+   target managed Postgres (versions/extensions/roles may differ).
 2. **All external integrations are stubs** — fine for a no-real-money
    pilot; blocking for full commerce. Phase 4.
 3. **Opaque bearer tokens, no rate limiting** — acceptable for pilot
