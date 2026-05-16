@@ -16,6 +16,10 @@ app:
     poll-ms: 3600000
     stale-hours: 0
     max-nudges-per-stage: 1
+  inventory:
+    feed:
+      # Pin the feed scheduler; tests trigger sync explicitly.
+      poll-ms: 3600000
   storage:
     documents:
       provider: local

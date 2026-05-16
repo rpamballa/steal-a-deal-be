@@ -1,0 +1,3 @@
+vin,modelYear,make,model,trim,imageUrls,mileage,price,status
+1FTFW1E50NFA20001,2022,Ford,F-150,Lariat,https://example.com/f1.jpg|https://example.com/f2.jpg,18000,43995.00,LIVE
+1C4RJFBG8NCB20002,2023,Jeep,Grand Cherokee,Limited,https://example.com/j1.jpg,12500,38995.00,LIVE

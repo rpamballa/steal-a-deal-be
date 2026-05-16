@@ -4,6 +4,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -264,6 +265,43 @@ class StealADealValidationTests {
                 .andExpect(header().string("Content-Disposition", "attachment; filename=\"license.pdf\""))
                 .andExpect(mvcResult ->
                         org.junit.jupiter.api.Assertions.assertArrayEquals(payload, mvcResult.getResponse().getContentAsByteArray()));
+    }
+
+    @Test
+    void inventoryFeedSyncIngestsFromConfiguredSource() throws Exception {
+        long dealerId = createAndApproveDealer();
+        String dealerToken = registerDealerUser(dealerId, "dealer-feed+" + dealerId + "@example.com");
+
+        mockMvc.perform(put("/api/dealers/" + dealerId + "/inventory/feed")
+                        .header("Authorization", bearer(dealerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "feedUrl": "classpath:feeds/sample-inventory.csv",
+                                  "mode": "CREATE_ONLY",
+                                  "enabled": true
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.feedUrl").value("classpath:feeds/sample-inventory.csv"))
+                .andExpect(jsonPath("$.lastSyncStatus").value("NEVER"));
+
+        mockMvc.perform(post("/api/dealers/" + dealerId + "/inventory/feed/sync")
+                        .header("Authorization", bearer(dealerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.createdCount").value(2))
+                .andExpect(jsonPath("$.rejectedCount").value(0));
+
+        mockMvc.perform(get("/api/dealers/" + dealerId + "/inventory/feed")
+                        .header("Authorization", bearer(dealerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.lastSyncStatus").value("SUCCESS"))
+                .andExpect(jsonPath("$.lastSyncedAt").isNotEmpty());
+
+        mockMvc.perform(get("/api/dealers/" + dealerId + "/inventory")
+                        .header("Authorization", bearer(dealerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2));
     }
 
     @Test
