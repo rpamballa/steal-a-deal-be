@@ -4,6 +4,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -267,6 +268,89 @@ class StealADealValidationTests {
     }
 
     @Test
+    void inventoryFeedSyncIngestsFromConfiguredSource() throws Exception {
+        long dealerId = createAndApproveDealer();
+        String dealerToken = registerDealerUser(dealerId, "dealer-feed+" + dealerId + "@example.com");
+
+        mockMvc.perform(put("/api/dealers/" + dealerId + "/inventory/feed")
+                        .header("Authorization", bearer(dealerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "feedUrl": "classpath:feeds/sample-inventory.csv",
+                                  "mode": "CREATE_ONLY",
+                                  "enabled": true
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.feedUrl").value("classpath:feeds/sample-inventory.csv"))
+                .andExpect(jsonPath("$.lastSyncStatus").value("NEVER"));
+
+        mockMvc.perform(post("/api/dealers/" + dealerId + "/inventory/feed/sync")
+                        .header("Authorization", bearer(dealerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.createdCount").value(2))
+                .andExpect(jsonPath("$.rejectedCount").value(0));
+
+        mockMvc.perform(get("/api/dealers/" + dealerId + "/inventory/feed")
+                        .header("Authorization", bearer(dealerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.lastSyncStatus").value("SUCCESS"))
+                .andExpect(jsonPath("$.lastSyncedAt").isNotEmpty());
+
+        mockMvc.perform(get("/api/dealers/" + dealerId + "/inventory")
+                        .header("Authorization", bearer(dealerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2));
+    }
+
+    @Test
+    void vinOnlyCreateEnrichesMakeModelYearFromDecoder() throws Exception {
+        long dealerId = createAndApproveDealer();
+        String dealerToken = registerDealerUser(dealerId, "dealer-vin+" + dealerId + "@example.com");
+        String uniqueVin = "1HGCM82633A20" + String.format("%04d", (int) (System.nanoTime() % 10000));
+
+        // No make/model/modelYear supplied — the stub decoder fills them.
+        mockMvc.perform(post("/api/dealers/" + dealerId + "/inventory/vin")
+                        .header("Authorization", bearer(dealerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "vin": "%s",
+                                  "imageUrls": ["https://example.com/x.jpg"],
+                                  "mileage": 15000,
+                                  "price": 24995.00,
+                                  "status": "LIVE"
+                                }
+                                """.formatted(uniqueVin)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.make").value("Honda"))
+                .andExpect(jsonPath("$.model").value("Accord"))
+                .andExpect(jsonPath("$.modelYear").value(2022))
+                .andExpect(jsonPath("$.trim").value("EX"))
+                .andExpect(jsonPath("$.status").value("LIVE"));
+
+        // Caller-provided value wins over the decode.
+        String vin2 = "1HGCM82633A21" + String.format("%04d", (int) (System.nanoTime() % 10000));
+        mockMvc.perform(post("/api/dealers/" + dealerId + "/inventory/vin")
+                        .header("Authorization", bearer(dealerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "vin": "%s",
+                                  "make": "Acura",
+                                  "imageUrls": ["https://example.com/y.jpg"],
+                                  "mileage": 9000,
+                                  "price": 31000.00,
+                                  "status": "LIVE"
+                                }
+                                """.formatted(vin2)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.make").value("Acura"))
+                .andExpect(jsonPath("$.model").value("Accord"));
+    }
+
+    @Test
     void documentUploadRejectsUnsupportedContentType() throws Exception {
         long dealerId = createAndApproveDealer();
         long vehicleId = createVehicle(dealerId);
@@ -527,6 +611,60 @@ class StealADealValidationTests {
 
     @org.springframework.beans.factory.annotation.Autowired
     private com.stealadeal.service.DealerOnboardingProcessor dealerOnboardingProcessor;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.stealadeal.service.StaleInventoryReaper staleInventoryReaper;
+
+    @Test
+    void staleReaperDelistsUntouchedLiveInventoryButSparesActiveDeals() throws Exception {
+        long dealerId = createAndApproveDealer();
+        long staleVehicleId = createVehicle(dealerId);
+        long freshVehicleId = createVehicle(dealerId);
+
+        com.stealadeal.domain.Vehicle stale = vehicleRepository.findById(staleVehicleId).orElseThrow();
+        stale.setLastSeenAt(java.time.OffsetDateTime.now().minusDays(45));
+        vehicleRepository.save(stale);
+
+        int delisted = staleInventoryReaper.runOnce();
+        org.junit.jupiter.api.Assertions.assertTrue(delisted >= 1);
+
+        org.junit.jupiter.api.Assertions.assertEquals("DRAFT",
+                vehicleRepository.findById(staleVehicleId).orElseThrow().getStatus().name());
+        org.junit.jupiter.api.Assertions.assertEquals("LIVE",
+                vehicleRepository.findById(freshVehicleId).orElseThrow().getStatus().name());
+
+        long protectedVehicleId = createVehicle(dealerId);
+        String buyerEmail = "buyer+" + System.nanoTime() + "@example.com";
+        String buyerToken = registerBuyerUser(buyerEmail);
+        mockMvc.perform(post("/api/deals")
+                        .header("Authorization", bearer(buyerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "vehicleId": %d,
+                                  "buyerName": "Reaper Buyer",
+                                  "buyerEmail": "%s",
+                                  "buyerPhone": "4085550177",
+                                  "buyerAddressLine1": "1 Reaper Way",
+                                  "buyerCity": "San Jose",
+                                  "buyerState": "CA",
+                                  "buyerPostalCode": "95112",
+                                  "fulfillmentType": "PICKUP",
+                                  "tradeIn": false,
+                                  "tradeInOffer": 0.00,
+                                  "deliveryFee": 0.00,
+                                  "discountAmount": 0.00
+                                }
+                                """.formatted(protectedVehicleId, buyerEmail)))
+                .andExpect(status().isCreated());
+        com.stealadeal.domain.Vehicle prot = vehicleRepository.findById(protectedVehicleId).orElseThrow();
+        prot.setLastSeenAt(java.time.OffsetDateTime.now().minusDays(45));
+        vehicleRepository.save(prot);
+
+        staleInventoryReaper.runOnce();
+        org.junit.jupiter.api.Assertions.assertNotEquals("DRAFT",
+                vehicleRepository.findById(protectedVehicleId).orElseThrow().getStatus().name());
+    }
 
     @Test
     void onboardingEndpointReflectsDerivedState() throws Exception {

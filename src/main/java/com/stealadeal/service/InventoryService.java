@@ -166,7 +166,31 @@ public class InventoryService {
         if (file.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "CSV file is required");
         }
+        try {
+            return parseCsvAndUpsert(dealer, mode, file.getInputStream());
+        } catch (IOException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unable to read CSV file");
+        }
+    }
 
+    /**
+     * Ingest CSV content from any source (uploaded file or an automated
+     * feed). Reuses the same validation, dedupe, and upsert pipeline.
+     */
+    public InventoryUploadResult ingestCsvStream(
+            Long dealerId,
+            InventoryUploadMode mode,
+            java.io.InputStream content
+    ) {
+        Dealer dealer = findApprovedDealer(dealerId);
+        return parseCsvAndUpsert(dealer, mode, content);
+    }
+
+    private InventoryUploadResult parseCsvAndUpsert(
+            Dealer dealer,
+            InventoryUploadMode mode,
+            java.io.InputStream csvInput
+    ) {
         List<InventoryUploadRowResult> rows = new ArrayList<>();
         Set<String> seenVins = new HashSet<>();
         int createdCount = 0;
@@ -174,7 +198,7 @@ public class InventoryService {
         int rejectedCount = 0;
 
         try (
-                BufferedReader reader = new BufferedReader(new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8));
+                BufferedReader reader = new BufferedReader(new InputStreamReader(csvInput, StandardCharsets.UTF_8));
                 CSVParser parser = CSVFormat.DEFAULT.builder()
                         .setHeader()
                         .setSkipHeaderRecord(true)
@@ -547,6 +571,7 @@ public class InventoryService {
         vehicle.setMileage(mileage);
         vehicle.setPrice(price);
         vehicle.setStatus(status);
+        vehicle.setLastSeenAt(OffsetDateTime.now());
     }
 
     private void validateCsvHeaders(CSVParser parser) {
