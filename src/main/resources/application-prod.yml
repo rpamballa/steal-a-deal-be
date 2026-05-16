@@ -36,3 +36,11 @@ app:
     bootstrap-admin-email: ${BOOTSTRAP_ADMIN_EMAIL:admin@stealadeal.local}
     bootstrap-admin-password: ${BOOTSTRAP_ADMIN_PASSWORD}
     token-ttl-hours: ${AUTH_TOKEN_TTL_HOURS:24}
+  cors:
+    # Comma-separated; Spring relaxed-binds to the List. Lock to the
+    # real frontend origin(s) before go-live.
+    allowed-origin-patterns: ${CORS_ALLOWED_ORIGINS:https://stealadeal.io}
+  seed:
+    demo:
+      # Never seed demo accounts/data into a production database.
+      enabled: false

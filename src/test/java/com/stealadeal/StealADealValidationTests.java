@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.forwardedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -404,6 +405,26 @@ class StealADealValidationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("accepted"))
                 .andExpect(jsonPath("$.provider").value("stub"));
+    }
+
+    @Test
+    void spaDeepLinkForwardsToShellWithoutAuth() throws Exception {
+        // A client-side route (not /api, not a static file) must serve
+        // the SPA shell so refresh/deep-link works, and without a token.
+        mockMvc.perform(get("/dealers/42/portal"))
+                .andExpect(status().isOk())
+                .andExpect(forwardedUrl("/index.html"));
+    }
+
+    @Test
+    void actuatorHealthIsPublicAndReportsUp() throws Exception {
+        mockMvc.perform(get("/actuator/health"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"));
+
+        mockMvc.perform(get("/actuator/health/readiness"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"));
     }
 
     @Test

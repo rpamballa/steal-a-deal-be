@@ -17,6 +17,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.util.matcher.RegexRequestMatcher;
 
 @Configuration
 @EnableMethodSecurity
@@ -39,6 +40,16 @@ public class SecurityConfig {
                                 "/", "/index.html", "/favicon.ico",
                                 "/assets/**", "/*.js", "/*.css",
                                 "/*.svg", "/*.png", "/*.ico", "/*.webmanifest")
+                        .permitAll()
+                        // Container/LB probes.
+                        .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
+                        // SPA shell + client-side routes (any GET that is not
+                        // an API/infra path) must load without auth so the
+                        // client can render its own auth flow. /api/** is
+                        // excluded here and still flows through the rules
+                        // below + the fail-closed anyRequest().authenticated().
+                        .requestMatchers(new RegexRequestMatcher(
+                                "^/(?!api/|api$|actuator/|actuator$|h2-console/|h2-console$).*$", "GET"))
                         .permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/api/webhooks/**").permitAll()
