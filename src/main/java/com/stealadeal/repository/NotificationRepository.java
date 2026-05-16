@@ -1,11 +1,19 @@
 package com.stealadeal.repository;
 
 import com.stealadeal.domain.Notification;
+import com.stealadeal.domain.NotificationDispatchStatus;
 import com.stealadeal.domain.ParticipantType;
 import java.util.List;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface NotificationRepository extends JpaRepository<Notification, Long> {
+
+    List<Notification> findByDispatchStatusAndDispatchAttemptsLessThanOrderByCreatedAtAsc(
+            NotificationDispatchStatus dispatchStatus,
+            int maxAttempts,
+            Pageable pageable
+    );
 
     List<Notification> findByRecipientTypeAndRecipientReferenceOrderByCreatedAtDesc(
             ParticipantType recipientType,

@@ -27,5 +27,7 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 
     List<Vehicle> findByDealerIdOrderByIdDesc(Long dealerId);
 
+    boolean existsByDealerIdAndStatus(Long dealerId, com.stealadeal.domain.VehicleStatus status);
+
     Optional<Vehicle> findByVinIgnoreCase(String vin);
 }

@@ -9,12 +9,21 @@ import com.stealadeal.domain.DocumentType;
 import com.stealadeal.domain.FulfillmentStatus;
 import com.stealadeal.domain.FulfillmentType;
 import com.stealadeal.domain.ParticipantType;
+import com.stealadeal.domain.SigningStatus;
+import com.stealadeal.domain.UserRole;
 import com.stealadeal.domain.Vehicle;
 import com.stealadeal.domain.VehicleStatus;
+import com.stealadeal.config.DocumentStorageProperties;
 import com.stealadeal.repository.DealActivityRepository;
 import com.stealadeal.repository.DealDocumentRepository;
 import com.stealadeal.repository.DealRepository;
 import com.stealadeal.repository.VehicleRepository;
+import com.stealadeal.security.AuthenticatedUser;
+import com.stealadeal.service.billing.BillingProvider;
+import com.stealadeal.service.esign.ESignProvider;
+import com.stealadeal.service.storage.DocumentStorageService;
+import java.io.IOException;
+import java.io.InputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.OffsetDateTime;
@@ -23,6 +32,7 @@ import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -76,19 +86,73 @@ public class DealService {
     private final DealDocumentRepository dealDocumentRepository;
     private final VehicleRepository vehicleRepository;
     private final TaskNotificationService taskNotificationService;
+    private final DocumentStorageService documentStorageService;
+    private final DocumentStorageProperties documentStorageProperties;
+    private final ESignProvider eSignProvider;
+    private final BillingProvider billingProvider;
+    private final TransactionFeeService transactionFeeService;
+    private final AuditService auditService;
 
     public DealService(
             DealRepository dealRepository,
             DealActivityRepository dealActivityRepository,
             DealDocumentRepository dealDocumentRepository,
             VehicleRepository vehicleRepository,
-            TaskNotificationService taskNotificationService
+            TaskNotificationService taskNotificationService,
+            DocumentStorageService documentStorageService,
+            DocumentStorageProperties documentStorageProperties,
+            ESignProvider eSignProvider,
+            BillingProvider billingProvider,
+            TransactionFeeService transactionFeeService,
+            AuditService auditService
     ) {
         this.dealRepository = dealRepository;
         this.dealActivityRepository = dealActivityRepository;
         this.dealDocumentRepository = dealDocumentRepository;
         this.vehicleRepository = vehicleRepository;
         this.taskNotificationService = taskNotificationService;
+        this.documentStorageService = documentStorageService;
+        this.documentStorageProperties = documentStorageProperties;
+        this.eSignProvider = eSignProvider;
+        this.billingProvider = billingProvider;
+        this.transactionFeeService = transactionFeeService;
+        this.auditService = auditService;
+    }
+
+    public record DepositIntentView(String intentId, String clientSecret, String status, BigDecimal amount) {
+    }
+
+    public record PlatformFeeView(
+            Long dealId,
+            BigDecimal vehiclePrice,
+            BigDecimal feeRate,
+            BigDecimal feeAmount,
+            boolean settled,
+            String chargeId,
+            OffsetDateTime settledAt
+    ) {
+    }
+
+    @Transactional(readOnly = true)
+    public PlatformFeeView getPlatformFee(Long dealId) {
+        Deal deal = findDeal(dealId);
+        // Settled deals expose the persisted rate/amount; open deals show
+        // the projection so dealers can see the fee before completion.
+        BigDecimal amount = deal.getPlatformFeeAmount() != null
+                ? deal.getPlatformFeeAmount()
+                : transactionFeeService.computeFee(deal);
+        return new PlatformFeeView(
+                deal.getId(),
+                deal.getVehiclePrice(),
+                deal.getPlatformFeeRate(),
+                amount,
+                deal.isPlatformFeeSettled(),
+                deal.getPlatformFeeChargeId(),
+                deal.getPlatformFeeSettledAt()
+        );
+    }
+
+    public record DocumentDownload(DealDocument document, InputStream content) {
     }
 
     @Transactional(readOnly = true)
@@ -101,6 +165,29 @@ public class DealService {
             return dealRepository.findByStage(stage);
         }
         return dealRepository.findAll();
+    }
+
+    @Transactional(readOnly = true)
+    public List<Deal> getDealsForPrincipal(AuthenticatedUser user, Long vehicleId, DealStage stage) {
+        if (user == null) {
+            return List.of();
+        }
+        if (user.role() == UserRole.ADMIN) {
+            return getDeals(vehicleId, stage);
+        }
+        if (user.role() == UserRole.DEALER && user.dealerId() != null) {
+            return dealRepository.findByVehicleDealerIdOrderByUpdatedAtDesc(user.dealerId()).stream()
+                    .filter(deal -> vehicleId == null || deal.getVehicle().getId().equals(vehicleId))
+                    .filter(deal -> stage == null || deal.getStage() == stage)
+                    .toList();
+        }
+        if (user.role() == UserRole.BUYER) {
+            return dealRepository.findByBuyerEmailOrderByUpdatedAtDesc(user.email()).stream()
+                    .filter(deal -> vehicleId == null || deal.getVehicle().getId().equals(vehicleId))
+                    .filter(deal -> stage == null || deal.getStage() == stage)
+                    .toList();
+        }
+        return List.of();
     }
 
     @Transactional(readOnly = true)
@@ -191,6 +278,16 @@ public class DealService {
         }
         Deal savedDeal = dealRepository.save(deal);
         recordActivity(savedDeal, "STAGE_CHANGED", "Deal stage changed from " + previousStage + " to " + savedDeal.getStage());
+        auditService.record("DEAL_STAGE_CHANGED", "Deal", savedDeal.getId(), savedDeal.getId(),
+                previousStage + " -> " + savedDeal.getStage());
+        if (nextStage == DealStage.COMPLETED) {
+            savedDeal = transactionFeeService.settleForCompletedDeal(savedDeal);
+            if (savedDeal.isPlatformFeeSettled()) {
+                recordActivity(savedDeal, "PLATFORM_FEE_SETTLED",
+                        "Platform transaction fee of " + savedDeal.getPlatformFeeAmount()
+                                + " settled (charge " + savedDeal.getPlatformFeeChargeId() + ")");
+            }
+        }
         taskNotificationService.createNotification(
                 savedDeal,
                 ParticipantType.BUYER,
@@ -210,6 +307,46 @@ public class DealService {
         if (amount.compareTo(deal.getDepositAmount()) < 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Deposit amount is below required minimum");
         }
+        return markDepositPaid(deal, amount);
+    }
+
+    public DepositIntentView createDepositIntent(Long dealId) {
+        Deal deal = findDeal(dealId);
+        if (deal.isDepositPaid()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Deposit has already been paid");
+        }
+        BillingProvider.DepositIntent intent = billingProvider.createDepositIntent(
+                new BillingProvider.DepositIntentRequest(
+                        deal.getId(),
+                        deal.getBuyerEmail(),
+                        deal.getDepositAmount(),
+                        "usd"
+                )
+        );
+        deal.setDepositIntentId(intent.intentId());
+        deal.setUpdatedAt(OffsetDateTime.now());
+        dealRepository.save(deal);
+        recordActivity(deal, "DEPOSIT_INTENT_CREATED",
+                "Deposit intent " + intent.intentId() + " created for "
+                        + deal.getDepositAmount().setScale(2, RoundingMode.HALF_UP));
+        return new DepositIntentView(intent.intentId(), intent.clientSecret(), intent.status(), deal.getDepositAmount());
+    }
+
+    public Deal confirmDepositByIntent(String intentId, String providerStatus) {
+        Deal deal = dealRepository.findByDepositIntentId(intentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Deposit intent not found"));
+        if (deal.isDepositPaid()) {
+            return deal;
+        }
+        if (!"SUCCEEDED".equalsIgnoreCase(providerStatus)) {
+            recordActivity(deal, "DEPOSIT_INTENT_FAILED",
+                    "Deposit intent " + intentId + " reported status " + providerStatus);
+            return deal;
+        }
+        return markDepositPaid(deal, deal.getDepositAmount());
+    }
+
+    private Deal markDepositPaid(Deal deal, BigDecimal amount) {
         deal.setDepositPaid(true);
         deal.setStage(DealStage.DEPOSIT_PAID);
         deal.setUpdatedAt(OffsetDateTime.now());
@@ -218,6 +355,8 @@ public class DealService {
         vehicleRepository.save(vehicle);
         Deal savedDeal = dealRepository.save(deal);
         recordActivity(savedDeal, "DEPOSIT_PAID", "Deposit recorded in the amount of " + amount.setScale(2, RoundingMode.HALF_UP));
+        auditService.record("DEAL_DEPOSIT_PAID", "Deal", savedDeal.getId(), savedDeal.getId(),
+                "Deposit " + amount.setScale(2, RoundingMode.HALF_UP) + " recorded");
         taskNotificationService.createNotification(
                 savedDeal,
                 ParticipantType.DEALER,
@@ -262,6 +401,168 @@ public class DealService {
         );
         taskNotificationService.syncForDeal(deal);
         return document;
+    }
+
+    public DealDocument uploadDealDocumentContent(Long dealId, Long documentId, MultipartFile file) {
+        Deal deal = findDeal(dealId);
+        DealDocument document = dealDocumentRepository.findById(documentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found"));
+        if (!document.getDeal().getId().equals(dealId)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document does not belong to this deal");
+        }
+        if (file == null || file.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Upload file is required");
+        }
+        if (file.getSize() > documentStorageProperties.maxBytes()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "File exceeds maximum allowed size of " + documentStorageProperties.maxBytes() + " bytes");
+        }
+        String contentType = file.getContentType();
+        if (contentType == null || !documentStorageProperties.allowedContentTypes().contains(contentType)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Unsupported content type: " + contentType);
+        }
+
+        DocumentStorageService.StoredObject stored;
+        try (InputStream content = file.getInputStream()) {
+            stored = documentStorageService.store(new DocumentStorageService.StoreRequest(
+                    contentType,
+                    file.getSize(),
+                    content
+            ));
+        } catch (IOException exception) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to store document");
+        }
+
+        String oldStorageKey = document.getStorageKey();
+        document.setStorageKey(stored.storageKey());
+        document.setContentType(stored.contentType());
+        document.setSizeBytes(stored.sizeBytes());
+        String originalName = file.getOriginalFilename();
+        if (originalName != null && !originalName.isBlank()) {
+            document.setFileName(originalName);
+        }
+        document.setStatus(DocumentStatus.UPLOADED);
+        document.setUpdatedAt(OffsetDateTime.now());
+        DealDocument saved = dealDocumentRepository.save(document);
+
+        if (oldStorageKey != null && !oldStorageKey.equals(stored.storageKey())) {
+            try {
+                documentStorageService.delete(oldStorageKey);
+            } catch (IOException ignored) {
+                // best-effort cleanup
+            }
+        }
+
+        if (deal.getStage() == DealStage.DEPOSIT_PAID || deal.getStage() == DealStage.INITIATED) {
+            deal.setStage(DealStage.DOCUMENTS_PENDING);
+            deal.setUpdatedAt(OffsetDateTime.now());
+            dealRepository.save(deal);
+        }
+        recordActivity(deal, "DOCUMENT_UPLOADED", saved.getType() + " uploaded (" + saved.getSizeBytes() + " bytes)");
+        taskNotificationService.createNotification(
+                deal,
+                ParticipantType.DEALER,
+                String.valueOf(deal.getVehicle().getDealer().getId()),
+                "Document uploaded",
+                saved.getType() + " was uploaded and is ready for review."
+        );
+        taskNotificationService.syncForDeal(deal);
+        return saved;
+    }
+
+    public DealDocument requestDocumentSignature(Long dealId, Long documentId) {
+        Deal deal = findDeal(dealId);
+        DealDocument document = dealDocumentRepository.findById(documentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found"));
+        if (!document.getDeal().getId().equals(dealId)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document does not belong to this deal");
+        }
+        if (document.getStorageKey() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Upload the document before requesting signature");
+        }
+        if (document.getSigningStatus() == SigningStatus.SIGNED) {
+            return document;
+        }
+
+        ESignProvider.EnvelopeRef envelope;
+        try (InputStream content = documentStorageService.open(document.getStorageKey())) {
+            envelope = eSignProvider.createEnvelope(new ESignProvider.CreateEnvelopeRequest(
+                    dealId,
+                    documentId,
+                    document.getType().name(),
+                    deal.getBuyerName(),
+                    deal.getBuyerEmail(),
+                    document.getContentType(),
+                    document.getSizeBytes() == null ? 0L : document.getSizeBytes(),
+                    content
+            ));
+        } catch (IOException exception) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to open document for signing");
+        }
+
+        document.setSigningEnvelopeId(envelope.envelopeId());
+        document.setSigningStatus(envelope.status());
+        document.setUpdatedAt(OffsetDateTime.now());
+        DealDocument saved = dealDocumentRepository.save(document);
+
+        recordActivity(deal, "DOCUMENT_SIGNING_REQUESTED",
+                document.getType() + " envelope " + envelope.envelopeId() + " sent to " + deal.getBuyerEmail());
+        taskNotificationService.createNotification(
+                deal,
+                ParticipantType.BUYER,
+                deal.getBuyerEmail(),
+                "Signature requested",
+                "Please sign " + document.getType() + " to continue."
+        );
+        return saved;
+    }
+
+    public DealDocument applyEnvelopeStatusUpdate(String envelopeId, SigningStatus status) {
+        DealDocument document = dealDocumentRepository.findBySigningEnvelopeId(envelopeId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Envelope not found"));
+        SigningStatus previous = document.getSigningStatus();
+        document.setSigningStatus(status);
+        document.setUpdatedAt(OffsetDateTime.now());
+        if (status == SigningStatus.SIGNED) {
+            document.setStatus(DocumentStatus.APPROVED);
+        } else if (status == SigningStatus.DECLINED || status == SigningStatus.EXPIRED) {
+            document.setStatus(DocumentStatus.REJECTED);
+        }
+        DealDocument saved = dealDocumentRepository.save(document);
+        Deal deal = saved.getDeal();
+        recordActivity(deal, "DOCUMENT_SIGNING_STATUS",
+                saved.getType() + " envelope " + envelopeId + " moved from " + previous + " to " + status);
+        if (status == SigningStatus.SIGNED) {
+            taskNotificationService.createNotification(
+                    deal,
+                    ParticipantType.DEALER,
+                    String.valueOf(deal.getVehicle().getDealer().getId()),
+                    "Document signed",
+                    saved.getType() + " was signed by " + deal.getBuyerEmail()
+            );
+        }
+        taskNotificationService.syncForDeal(deal);
+        return saved;
+    }
+
+    @Transactional(readOnly = true)
+    public DocumentDownload downloadDealDocumentContent(Long dealId, Long documentId) {
+        findDeal(dealId);
+        DealDocument document = dealDocumentRepository.findById(documentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found"));
+        if (!document.getDeal().getId().equals(dealId)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document does not belong to this deal");
+        }
+        if (document.getStorageKey() == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Document has no stored content");
+        }
+        try {
+            InputStream content = documentStorageService.open(document.getStorageKey());
+            return new DocumentDownload(document, content);
+        } catch (IOException exception) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to open document");
+        }
     }
 
     public DealDocument updateDocumentStatus(Long dealId, Long documentId, DocumentStatus status) {

@@ -9,12 +9,16 @@ import com.stealadeal.domain.DocumentStatus;
 import com.stealadeal.domain.DocumentType;
 import com.stealadeal.domain.FulfillmentStatus;
 import com.stealadeal.domain.Notification;
+import com.stealadeal.domain.NotificationDispatchStatus;
 import com.stealadeal.domain.ParticipantType;
 import com.stealadeal.repository.DealDocumentRepository;
 import com.stealadeal.repository.DealTaskRepository;
 import com.stealadeal.repository.NotificationRepository;
+import com.stealadeal.service.notify.NotificationDispatcher;
 import java.time.OffsetDateTime;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,18 +36,23 @@ public class TaskNotificationService {
     private static final String DEALER_SCHEDULE = "dealer-schedule-fulfillment";
     private static final String DEALER_HANDOFF = "dealer-complete-handoff";
 
+    private static final Logger log = LoggerFactory.getLogger(TaskNotificationService.class);
+
     private final DealTaskRepository dealTaskRepository;
     private final NotificationRepository notificationRepository;
     private final DealDocumentRepository dealDocumentRepository;
+    private final NotificationDispatcher notificationDispatcher;
 
     public TaskNotificationService(
             DealTaskRepository dealTaskRepository,
             NotificationRepository notificationRepository,
-            DealDocumentRepository dealDocumentRepository
+            DealDocumentRepository dealDocumentRepository,
+            NotificationDispatcher notificationDispatcher
     ) {
         this.dealTaskRepository = dealTaskRepository;
         this.notificationRepository = notificationRepository;
         this.dealDocumentRepository = dealDocumentRepository;
+        this.notificationDispatcher = notificationDispatcher;
     }
 
     public void syncForDeal(Deal deal) {
@@ -139,7 +148,46 @@ public class TaskNotificationService {
         notification.setMessage(message);
         notification.setRead(false);
         notification.setCreatedAt(OffsetDateTime.now());
-        notificationRepository.save(notification);
+        notification.setDispatchStatus(NotificationDispatchStatus.PENDING);
+        notification.setDispatchAttempts(0);
+        Notification saved = notificationRepository.save(notification);
+        // Best-effort inline fast path. Anything that throws stays PENDING
+        // and is retried by NotificationOutboxProcessor.
+        attemptDispatch(saved);
+    }
+
+    /**
+     * Attempt one delivery for a persisted notification. Increments the
+     * attempt counter, marks DISPATCHED on success, and never rolls back
+     * the in-app row on failure. Shared by the inline fast path and the
+     * scheduled outbox retry.
+     */
+    public boolean attemptDispatch(Notification notification) {
+        notification.setDispatchAttempts(notification.getDispatchAttempts() + 1);
+        try {
+            List<String> channels = notificationDispatcher.dispatch(new NotificationDispatcher.NotificationMessage(
+                    notification.getId(),
+                    notification.getRecipientType(),
+                    notification.getRecipientReference(),
+                    notification.getTitle(),
+                    notification.getMessage(),
+                    notification.getDeal() == null ? null : notification.getDeal().getId()
+            ));
+            if (channels != null && !channels.isEmpty()) {
+                notification.setDispatchedAt(OffsetDateTime.now());
+                notification.setDispatchChannels(String.join(",", channels));
+                notification.setDispatchStatus(NotificationDispatchStatus.DISPATCHED);
+                notificationRepository.save(notification);
+                return true;
+            }
+            notificationRepository.save(notification);
+            return false;
+        } catch (RuntimeException exception) {
+            log.warn("[notify] dispatch attempt {} failed for notification {}: {}",
+                    notification.getDispatchAttempts(), notification.getId(), exception.getMessage());
+            notificationRepository.save(notification);
+            return false;
+        }
     }
 
     private void upsertTask(

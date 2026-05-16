@@ -1,0 +1,38 @@
+spring:
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/stealadeal}
+    driver-class-name: org.postgresql.Driver
+    username: ${DATABASE_USERNAME:stealadeal}
+    password: ${DATABASE_PASSWORD:stealadeal}
+    hikari:
+      maximum-pool-size: ${DATABASE_POOL_MAX:20}
+      minimum-idle: ${DATABASE_POOL_MIN:5}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+        format_sql: false
+    open-in-view: false
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: "0"
+    locations: classpath:db/migration
+  h2:
+    console:
+      enabled: false
+
+server:
+  port: ${SERVER_PORT:8282}
+  error:
+    include-message: never
+    include-stacktrace: never
+
+app:
+  auth:
+    bootstrap-admin-email: ${BOOTSTRAP_ADMIN_EMAIL:admin@stealadeal.local}
+    bootstrap-admin-password: ${BOOTSTRAP_ADMIN_PASSWORD}
+    token-ttl-hours: ${AUTH_TOKEN_TTL_HOURS:24}

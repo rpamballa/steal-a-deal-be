@@ -33,6 +33,22 @@ public class DealDocument {
     @Column(nullable = false)
     private String fileName;
 
+    @Column
+    private String storageKey;
+
+    @Column
+    private String contentType;
+
+    @Column
+    private Long sizeBytes;
+
+    @Column
+    private String signingEnvelopeId;
+
+    @Enumerated(EnumType.STRING)
+    @Column
+    private SigningStatus signingStatus;
+
     @Column(nullable = false)
     private OffsetDateTime createdAt;
 
@@ -73,6 +89,46 @@ public class DealDocument {
 
     public void setFileName(String fileName) {
         this.fileName = fileName;
+    }
+
+    public String getStorageKey() {
+        return storageKey;
+    }
+
+    public void setStorageKey(String storageKey) {
+        this.storageKey = storageKey;
+    }
+
+    public String getContentType() {
+        return contentType;
+    }
+
+    public void setContentType(String contentType) {
+        this.contentType = contentType;
+    }
+
+    public Long getSizeBytes() {
+        return sizeBytes;
+    }
+
+    public void setSizeBytes(Long sizeBytes) {
+        this.sizeBytes = sizeBytes;
+    }
+
+    public String getSigningEnvelopeId() {
+        return signingEnvelopeId;
+    }
+
+    public void setSigningEnvelopeId(String signingEnvelopeId) {
+        this.signingEnvelopeId = signingEnvelopeId;
+    }
+
+    public SigningStatus getSigningStatus() {
+        return signingStatus;
+    }
+
+    public void setSigningStatus(SigningStatus signingStatus) {
+        this.signingStatus = signingStatus;
     }
 
     public OffsetDateTime getCreatedAt() {

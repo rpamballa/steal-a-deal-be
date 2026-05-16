@@ -6,12 +6,14 @@ import com.stealadeal.domain.AppointmentType;
 import com.stealadeal.domain.Dealer;
 import com.stealadeal.domain.Lead;
 import com.stealadeal.domain.LeadStatus;
+import com.stealadeal.domain.UserRole;
 import com.stealadeal.domain.Vehicle;
 import com.stealadeal.domain.VehicleStatus;
 import com.stealadeal.repository.AppointmentRepository;
 import com.stealadeal.repository.DealerRepository;
 import com.stealadeal.repository.LeadRepository;
 import com.stealadeal.repository.VehicleRepository;
+import com.stealadeal.security.AuthenticatedUser;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -407,6 +409,28 @@ public class InventoryService {
         return leadRepository.findAll();
     }
 
+    @Transactional(readOnly = true)
+    public List<Lead> getLeadsForPrincipal(AuthenticatedUser user, Long vehicleId, LeadStatus status) {
+        if (user == null) {
+            return List.of();
+        }
+        if (user.role() == UserRole.ADMIN) {
+            return getLeads(vehicleId, status);
+        }
+        if (user.role() == UserRole.DEALER && user.dealerId() != null) {
+            return leadRepository.findByVehicleDealerId(user.dealerId()).stream()
+                    .filter(lead -> vehicleId == null || lead.getVehicle().getId().equals(vehicleId))
+                    .filter(lead -> status == null || lead.getStatus() == status)
+                    .toList();
+        }
+        if (user.role() == UserRole.BUYER) {
+            return getLeads(vehicleId, status).stream()
+                    .filter(lead -> lead.getBuyerEmail().equalsIgnoreCase(user.email()))
+                    .toList();
+        }
+        return List.of();
+    }
+
     public Lead updateLeadStatus(Long leadId, LeadStatus status) {
         Lead lead = leadRepository.findById(leadId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Lead not found"));
@@ -439,6 +463,28 @@ public class InventoryService {
             return appointmentRepository.findByStatus(status);
         }
         return appointmentRepository.findAll();
+    }
+
+    @Transactional(readOnly = true)
+    public List<Appointment> getAppointmentsForPrincipal(AuthenticatedUser user, Long vehicleId, AppointmentStatus status) {
+        if (user == null) {
+            return List.of();
+        }
+        if (user.role() == UserRole.ADMIN) {
+            return getAppointments(vehicleId, status);
+        }
+        if (user.role() == UserRole.DEALER && user.dealerId() != null) {
+            return appointmentRepository.findByVehicleDealerId(user.dealerId()).stream()
+                    .filter(appointment -> vehicleId == null || appointment.getVehicle().getId().equals(vehicleId))
+                    .filter(appointment -> status == null || appointment.getStatus() == status)
+                    .toList();
+        }
+        if (user.role() == UserRole.BUYER) {
+            return getAppointments(vehicleId, status).stream()
+                    .filter(appointment -> appointment.getBuyerEmail().equalsIgnoreCase(user.email()))
+                    .toList();
+        }
+        return List.of();
     }
 
     public Appointment updateAppointmentStatus(Long appointmentId, AppointmentStatus status) {

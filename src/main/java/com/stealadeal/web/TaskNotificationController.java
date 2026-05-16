@@ -126,6 +126,8 @@ public class TaskNotificationController {
             String title,
             String message,
             boolean read,
+            OffsetDateTime dispatchedAt,
+            String dispatchChannels,
             OffsetDateTime createdAt
     ) {
 
@@ -138,6 +140,8 @@ public class TaskNotificationController {
                     notification.getTitle(),
                     notification.getMessage(),
                     notification.isRead(),
+                    notification.getDispatchedAt(),
+                    notification.getDispatchChannels(),
                     notification.getCreatedAt()
             );
         }

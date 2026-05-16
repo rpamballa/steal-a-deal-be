@@ -1,0 +1,10 @@
+.git
+.gitignore
+.idea
+.claude
+build
+.gradle
+*.iml
+docs
+README.md
+**/.DS_Store

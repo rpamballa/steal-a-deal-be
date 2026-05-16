@@ -14,4 +14,6 @@ public interface DealRepository extends JpaRepository<Deal, Long> {
     List<Deal> findByBuyerEmailOrderByUpdatedAtDesc(String buyerEmail);
 
     List<Deal> findByVehicleDealerIdOrderByUpdatedAtDesc(Long dealerId);
+
+    java.util.Optional<Deal> findByDepositIntentId(String depositIntentId);
 }
