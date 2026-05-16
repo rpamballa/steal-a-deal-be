@@ -33,6 +33,13 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        // Single-page app shell + built assets must load without
+                        // auth so the client can render its own sign-in screen.
+                        .requestMatchers(HttpMethod.GET,
+                                "/", "/index.html", "/favicon.ico",
+                                "/assets/**", "/*.js", "/*.css",
+                                "/*.svg", "/*.png", "/*.ico", "/*.webmanifest")
+                        .permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/api/webhooks/**").permitAll()
                         .requestMatchers("/h2-console/**").permitAll()
