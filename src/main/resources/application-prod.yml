@@ -40,6 +40,13 @@ app:
     # Comma-separated; Spring relaxed-binds to the List. Lock to the
     # real frontend origin(s) before go-live.
     allowed-origin-patterns: ${CORS_ALLOWED_ORIGINS:https://stealadeal.io}
+  billing:
+    # Defaults to stub even in prod until real keys are provisioned.
+    # Set BILLING_PROVIDER=stripe and supply the keys ONLY via the
+    # secrets manager — never commit key values.
+    provider: ${BILLING_PROVIDER:stub}
+    stripe-api-key: ${STRIPE_API_KEY:}
+    stripe-webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
   seed:
     demo:
       # Never seed demo accounts/data into a production database.
