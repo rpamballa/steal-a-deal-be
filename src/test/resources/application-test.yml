@@ -10,6 +10,12 @@ app:
     # drive NotificationOutboxProcessor.drainOutbox() explicitly.
     outbox-poll-ms: 3600000
     max-dispatch-attempts: 3
+  onboarding:
+    # Pin the scheduler far out; tests drive evaluation explicitly.
+    # stale-hours 0 = nudge a stuck dealer on the first evaluation.
+    poll-ms: 3600000
+    stale-hours: 0
+    max-nudges-per-stage: 1
   storage:
     documents:
       provider: local

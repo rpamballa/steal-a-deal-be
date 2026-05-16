@@ -375,5 +375,13 @@ Every architectural seam is now in place behind an SPI with a working stub. The 
 |---|---|---|
 | Async outbox + retry for notifications | **Closed** | `dispatch_status`/`dispatch_attempts` (V10), best-effort inline first attempt + `NotificationOutboxProcessor` `@Scheduled` retry with bounded attempts, FAILED terminal state. `app.notifications.max-dispatch-attempts` / `outbox-poll-ms` configurable. |
 
+### 2026-05-15 — Dealer onboarding automation landed
+
+| Gap | Status | Notes |
+|---|---|---|
+| Automated dealer onboarding | **Closed** | `dealer_onboarding` (V11) tracks 8 state-derived milestones (REGISTERED → ACTIVATED). `DealerOnboardingService.evaluate` recomputes from live system state (approval, dealer user, active subscription, live inventory, first lead/deal, first completed deal), advances the stage, stamps milestone timestamps, and audits transitions. `DealerOnboardingProcessor` `@Scheduled` re-evaluates every dealer and auto-nudges a dealer stuck on an actionable step (USER_CREATED / SUBSCRIPTION_ACTIVE / INVENTORY_LIVE / FIRST_DEAL) through the notification outbox, with `app.onboarding.stale-hours` cadence and `max-nudges-per-stage` cap. `GET /api/dealers/{id}/onboarding` returns stage, percent complete, next action, and milestone timestamps. |
+
+This automates ~60–70% of onboarding-volume dealer-success work (milestone tracking, stuck-dealer nudges, next-action guidance, funnel instrumentation) with no external dependency. The value-dense remainder (first real deal hand-holding, recovery of churning dealers, complex troubleshooting) remains a human function by design.
+
 All backend gaps that do not require external vendor credentials are now closed. The only remaining work is registering real vendor adapter beans (Stripe / DocuSign / S3 / SES / Twilio) once credentials are provisioned, and the Sprint 5 DMS integrations.
 

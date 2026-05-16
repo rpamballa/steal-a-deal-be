@@ -525,6 +525,77 @@ class StealADealValidationTests {
     @org.springframework.beans.factory.annotation.Autowired
     private com.stealadeal.service.NotificationOutboxProcessor notificationOutboxProcessor;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.stealadeal.service.DealerOnboardingProcessor dealerOnboardingProcessor;
+
+    @Test
+    void onboardingEndpointReflectsDerivedState() throws Exception {
+        long dealerId = createAndApproveDealer();
+        String dealerToken = registerDealerUser(dealerId, "dealer-onb+" + dealerId + "@example.com");
+
+        mockMvc.perform(patch("/api/dealers/" + dealerId + "/portal/subscription")
+                        .header("Authorization", bearer(dealerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"plan":"PERFORMANCE","status":"ACTIVE","autoRenew":true}
+                                """))
+                .andExpect(status().isOk());
+
+        long vehicleId = createVehicle(dealerId);
+        String buyerEmail = "buyer+" + System.nanoTime() + "@example.com";
+        String buyerToken = registerBuyerUser(buyerEmail);
+        mockMvc.perform(post("/api/deals")
+                        .header("Authorization", bearer(buyerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "vehicleId": %d,
+                                  "buyerName": "Onb Buyer",
+                                  "buyerEmail": "%s",
+                                  "buyerPhone": "4085550166",
+                                  "buyerAddressLine1": "1 Onb Way",
+                                  "buyerCity": "San Jose",
+                                  "buyerState": "CA",
+                                  "buyerPostalCode": "95112",
+                                  "fulfillmentType": "PICKUP",
+                                  "tradeIn": false,
+                                  "tradeInOffer": 0.00,
+                                  "deliveryFee": 0.00,
+                                  "discountAmount": 0.00
+                                }
+                                """.formatted(vehicleId, buyerEmail)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/dealers/" + dealerId + "/onboarding")
+                        .header("Authorization", bearer(dealerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stage").value("FIRST_DEAL"))
+                .andExpect(jsonPath("$.complete").value(false))
+                .andExpect(jsonPath("$.nextActionStage").value("ACTIVATED"))
+                .andExpect(jsonPath("$.approvedAt").isNotEmpty())
+                .andExpect(jsonPath("$.subscriptionActiveAt").isNotEmpty())
+                .andExpect(jsonPath("$.inventoryLiveAt").isNotEmpty())
+                .andExpect(jsonPath("$.firstDealAt").isNotEmpty());
+    }
+
+    @Test
+    void stuckDealerIsAutoNudgedThroughNotificationOutbox() throws Exception {
+        long dealerId = createAndApproveDealer();
+        // Approved but no dealer login yet -> blocking stage USER_CREATED.
+        // Test profile sets stale-hours=0 so a nudge fires immediately.
+        dealerOnboardingProcessor.runOnce();
+
+        java.util.List<com.stealadeal.domain.Notification> dealerNotes =
+                notificationRepository.findByRecipientTypeAndRecipientReferenceOrderByCreatedAtDesc(
+                        com.stealadeal.domain.ParticipantType.DEALER, String.valueOf(dealerId));
+
+        org.junit.jupiter.api.Assertions.assertTrue(
+                dealerNotes.stream().anyMatch(n ->
+                        "Finish setting up your StealADeal portal".equals(n.getTitle())
+                                && n.getMessage().contains("Create your dealer login")),
+                "expected an onboarding nudge for the stuck dealer");
+    }
+
     @Test
     void pendingNotificationIsDeliveredByOutboxProcessor() throws Exception {
         com.stealadeal.domain.Notification pending = new com.stealadeal.domain.Notification();
