@@ -12,6 +12,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -53,6 +54,9 @@ public class Vehicle {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private VehicleStatus status;
+
+    @Column
+    private OffsetDateTime lastSeenAt;
 
     public Long getId() {
         return id;
@@ -140,5 +144,13 @@ public class Vehicle {
 
     public void setStatus(VehicleStatus status) {
         this.status = status;
+    }
+
+    public OffsetDateTime getLastSeenAt() {
+        return lastSeenAt;
+    }
+
+    public void setLastSeenAt(OffsetDateTime lastSeenAt) {
+        this.lastSeenAt = lastSeenAt;
     }
 }

@@ -29,5 +29,10 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 
     boolean existsByDealerIdAndStatus(Long dealerId, com.stealadeal.domain.VehicleStatus status);
 
+    List<Vehicle> findByStatusAndLastSeenAtBefore(
+            com.stealadeal.domain.VehicleStatus status,
+            java.time.OffsetDateTime cutoff
+    );
+
     Optional<Vehicle> findByVinIgnoreCase(String vin);
 }

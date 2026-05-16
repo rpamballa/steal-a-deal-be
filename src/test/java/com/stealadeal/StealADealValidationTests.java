@@ -612,6 +612,60 @@ class StealADealValidationTests {
     @org.springframework.beans.factory.annotation.Autowired
     private com.stealadeal.service.DealerOnboardingProcessor dealerOnboardingProcessor;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.stealadeal.service.StaleInventoryReaper staleInventoryReaper;
+
+    @Test
+    void staleReaperDelistsUntouchedLiveInventoryButSparesActiveDeals() throws Exception {
+        long dealerId = createAndApproveDealer();
+        long staleVehicleId = createVehicle(dealerId);
+        long freshVehicleId = createVehicle(dealerId);
+
+        com.stealadeal.domain.Vehicle stale = vehicleRepository.findById(staleVehicleId).orElseThrow();
+        stale.setLastSeenAt(java.time.OffsetDateTime.now().minusDays(45));
+        vehicleRepository.save(stale);
+
+        int delisted = staleInventoryReaper.runOnce();
+        org.junit.jupiter.api.Assertions.assertTrue(delisted >= 1);
+
+        org.junit.jupiter.api.Assertions.assertEquals("DRAFT",
+                vehicleRepository.findById(staleVehicleId).orElseThrow().getStatus().name());
+        org.junit.jupiter.api.Assertions.assertEquals("LIVE",
+                vehicleRepository.findById(freshVehicleId).orElseThrow().getStatus().name());
+
+        long protectedVehicleId = createVehicle(dealerId);
+        String buyerEmail = "buyer+" + System.nanoTime() + "@example.com";
+        String buyerToken = registerBuyerUser(buyerEmail);
+        mockMvc.perform(post("/api/deals")
+                        .header("Authorization", bearer(buyerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "vehicleId": %d,
+                                  "buyerName": "Reaper Buyer",
+                                  "buyerEmail": "%s",
+                                  "buyerPhone": "4085550177",
+                                  "buyerAddressLine1": "1 Reaper Way",
+                                  "buyerCity": "San Jose",
+                                  "buyerState": "CA",
+                                  "buyerPostalCode": "95112",
+                                  "fulfillmentType": "PICKUP",
+                                  "tradeIn": false,
+                                  "tradeInOffer": 0.00,
+                                  "deliveryFee": 0.00,
+                                  "discountAmount": 0.00
+                                }
+                                """.formatted(protectedVehicleId, buyerEmail)))
+                .andExpect(status().isCreated());
+        com.stealadeal.domain.Vehicle prot = vehicleRepository.findById(protectedVehicleId).orElseThrow();
+        prot.setLastSeenAt(java.time.OffsetDateTime.now().minusDays(45));
+        vehicleRepository.save(prot);
+
+        staleInventoryReaper.runOnce();
+        org.junit.jupiter.api.Assertions.assertNotEquals("DRAFT",
+                vehicleRepository.findById(protectedVehicleId).orElseThrow().getStatus().name());
+    }
+
     @Test
     void onboardingEndpointReflectsDerivedState() throws Exception {
         long dealerId = createAndApproveDealer();

@@ -20,6 +20,10 @@ app:
     feed:
       # Pin the feed scheduler; tests trigger sync explicitly.
       poll-ms: 3600000
+    reaper:
+      # Pin the reaper scheduler; tests trigger runOnce() explicitly.
+      poll-ms: 3600000
+      stale-days: 30
   storage:
     documents:
       provider: local

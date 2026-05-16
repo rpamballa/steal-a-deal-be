@@ -571,6 +571,7 @@ public class InventoryService {
         vehicle.setMileage(mileage);
         vehicle.setPrice(price);
         vehicle.setStatus(status);
+        vehicle.setLastSeenAt(OffsetDateTime.now());
     }
 
     private void validateCsvHeaders(CSVParser parser) {
