@@ -14,6 +14,7 @@ repositories {
 
 dependencies {
     implementation("org.apache.commons:commons-csv:1.11.0")
+    implementation("com.stripe:stripe-java:28.4.0")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-security")
