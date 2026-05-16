@@ -19,12 +19,28 @@ server:
   error:
     include-message: always
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+
 app:
   auth:
     bootstrap-admin-email: admin@stealadeal.local
     bootstrap-admin-password: Admin123!
     token-ttl-hours: 24
   seed:
+    demo:
+      # Demo dealers/vehicles/users for local dev. MUST be false in
+      # production (application-prod.yml sets it) so demo accounts with
+      # known passwords are never written to a real database.
+      enabled: true
     stress:
       # Opt-in load-test data. Off by default. Enable to provision a
       # dedicated "Stress Test Motors" dealer + N synthetic listings.
