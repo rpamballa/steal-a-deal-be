@@ -42,9 +42,14 @@ import org.springframework.web.multipart.MultipartFile;
 public class VehicleController {
 
     private final InventoryService inventoryService;
+    private final com.stealadeal.service.VinEnrichmentService vinEnrichmentService;
 
-    public VehicleController(InventoryService inventoryService) {
+    public VehicleController(
+            InventoryService inventoryService,
+            com.stealadeal.service.VinEnrichmentService vinEnrichmentService
+    ) {
         this.inventoryService = inventoryService;
+        this.vinEnrichmentService = vinEnrichmentService;
     }
 
     @GetMapping("/vehicles")
@@ -71,6 +76,34 @@ public class VehicleController {
     @PreAuthorize("@accessControl.canAccessDealer(authentication, #dealerId)")
     public List<VehicleResponse> getDealerInventory(@PathVariable Long dealerId) {
         return inventoryService.getDealerInventory(dealerId).stream().map(VehicleResponse::from).toList();
+    }
+
+    @PostMapping("/dealers/{dealerId}/inventory/vin")
+    @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("@accessControl.canAccessDealer(authentication, #dealerId)")
+    public VehicleResponse createFromVin(
+            @PathVariable Long dealerId,
+            @Valid @RequestBody VinCreateRequest request
+    ) {
+        com.stealadeal.service.VinEnrichmentService.EnrichedVehicle enriched = vinEnrichmentService.enrich(
+                request.vin(),
+                request.modelYear(),
+                request.make(),
+                request.model(),
+                request.trim()
+        );
+        return VehicleResponse.from(inventoryService.createVehicle(
+                dealerId,
+                request.vin(),
+                enriched.modelYear(),
+                enriched.make(),
+                enriched.model(),
+                enriched.trim(),
+                request.imageUrls() == null ? List.of() : request.imageUrls(),
+                request.mileage(),
+                request.price(),
+                request.status()
+        ));
     }
 
     @PostMapping("/vehicles")
@@ -217,6 +250,19 @@ public class VehicleController {
                 metrics.newLeadCount(),
                 metrics.requestedAppointmentCount()
         );
+    }
+
+    public record VinCreateRequest(
+            @NotBlank @Pattern(regexp = "^[A-HJ-NPR-Z0-9]{17}$") String vin,
+            Integer modelYear,
+            String make,
+            String model,
+            String trim,
+            List<@NotBlank String> imageUrls,
+            @Min(0) int mileage,
+            @NotNull @DecimalMin("0.0") BigDecimal price,
+            @NotNull VehicleStatus status
+    ) {
     }
 
     public record CreateVehicleRequest(

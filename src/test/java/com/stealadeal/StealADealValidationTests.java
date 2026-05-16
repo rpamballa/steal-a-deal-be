@@ -267,6 +267,52 @@ class StealADealValidationTests {
     }
 
     @Test
+    void vinOnlyCreateEnrichesMakeModelYearFromDecoder() throws Exception {
+        long dealerId = createAndApproveDealer();
+        String dealerToken = registerDealerUser(dealerId, "dealer-vin+" + dealerId + "@example.com");
+        String uniqueVin = "1HGCM82633A20" + String.format("%04d", (int) (System.nanoTime() % 10000));
+
+        // No make/model/modelYear supplied — the stub decoder fills them.
+        mockMvc.perform(post("/api/dealers/" + dealerId + "/inventory/vin")
+                        .header("Authorization", bearer(dealerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "vin": "%s",
+                                  "imageUrls": ["https://example.com/x.jpg"],
+                                  "mileage": 15000,
+                                  "price": 24995.00,
+                                  "status": "LIVE"
+                                }
+                                """.formatted(uniqueVin)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.make").value("Honda"))
+                .andExpect(jsonPath("$.model").value("Accord"))
+                .andExpect(jsonPath("$.modelYear").value(2022))
+                .andExpect(jsonPath("$.trim").value("EX"))
+                .andExpect(jsonPath("$.status").value("LIVE"));
+
+        // Caller-provided value wins over the decode.
+        String vin2 = "1HGCM82633A21" + String.format("%04d", (int) (System.nanoTime() % 10000));
+        mockMvc.perform(post("/api/dealers/" + dealerId + "/inventory/vin")
+                        .header("Authorization", bearer(dealerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "vin": "%s",
+                                  "make": "Acura",
+                                  "imageUrls": ["https://example.com/y.jpg"],
+                                  "mileage": 9000,
+                                  "price": 31000.00,
+                                  "status": "LIVE"
+                                }
+                                """.formatted(vin2)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.make").value("Acura"))
+                .andExpect(jsonPath("$.model").value("Accord"));
+    }
+
+    @Test
     void documentUploadRejectsUnsupportedContentType() throws Exception {
         long dealerId = createAndApproveDealer();
         long vehicleId = createVehicle(dealerId);
