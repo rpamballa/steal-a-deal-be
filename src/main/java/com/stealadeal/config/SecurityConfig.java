@@ -55,6 +55,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/webhooks/**").permitAll()
                         .requestMatchers("/h2-console/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/vehicles", "/api/vehicles/*").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/vehicles/*/photos/*").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/dealers", "/api/dealers/*").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/dealers").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/vehicles/*/leads").permitAll()

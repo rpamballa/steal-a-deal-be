@@ -13,9 +13,12 @@ import com.stealadeal.repository.AppointmentRepository;
 import com.stealadeal.repository.DealerRepository;
 import com.stealadeal.repository.LeadRepository;
 import com.stealadeal.repository.VehicleRepository;
+import com.stealadeal.config.VehicleImageStorageProperties;
 import com.stealadeal.security.AuthenticatedUser;
+import com.stealadeal.service.storage.VehicleImageStorageService;
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -92,21 +95,130 @@ public class InventoryService {
     ) {
     }
 
+    public static final int MAX_IMAGES_PER_LISTING = 10;
+
+    public record VehicleImageDownload(InputStream content, String contentType) {
+    }
+
     private final DealerRepository dealerRepository;
     private final VehicleRepository vehicleRepository;
     private final LeadRepository leadRepository;
     private final AppointmentRepository appointmentRepository;
+    private final VehicleImageStorageService vehicleImageStorageService;
+    private final VehicleImageStorageProperties vehicleImageStorageProperties;
 
     public InventoryService(
             DealerRepository dealerRepository,
             VehicleRepository vehicleRepository,
             LeadRepository leadRepository,
-            AppointmentRepository appointmentRepository
+            AppointmentRepository appointmentRepository,
+            VehicleImageStorageService vehicleImageStorageService,
+            VehicleImageStorageProperties vehicleImageStorageProperties
     ) {
         this.dealerRepository = dealerRepository;
         this.vehicleRepository = vehicleRepository;
         this.leadRepository = leadRepository;
         this.appointmentRepository = appointmentRepository;
+        this.vehicleImageStorageService = vehicleImageStorageService;
+        this.vehicleImageStorageProperties = vehicleImageStorageProperties;
+    }
+
+    private int maxImagesPerListing() {
+        return vehicleImageStorageProperties.maxPerListing() == null
+                ? MAX_IMAGES_PER_LISTING
+                : vehicleImageStorageProperties.maxPerListing();
+    }
+
+    public Vehicle addVehicleImages(Long dealerId, Long vehicleId, List<MultipartFile> files) {
+        Dealer dealer = findApprovedDealer(dealerId);
+        Vehicle vehicle = findVehicle(vehicleId);
+        if (!vehicle.getDealer().getId().equals(dealer.getId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Vehicle does not belong to this dealer");
+        }
+        if (files == null || files.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "At least one image is required");
+        }
+        int max = maxImagesPerListing();
+        List<String> urls = new ArrayList<>(vehicle.getImageUrls());
+        if (urls.size() + files.size() > max) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "A listing can have at most " + max + " photos (current "
+                            + urls.size() + ", uploading " + files.size() + ")");
+        }
+        for (MultipartFile file : files) {
+            if (file.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Empty image file");
+            }
+            if (file.getSize() > vehicleImageStorageProperties.maxBytes()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Image exceeds max size of " + vehicleImageStorageProperties.maxBytes() + " bytes");
+            }
+            String contentType = file.getContentType();
+            if (contentType == null || !vehicleImageStorageProperties.allowedContentTypes().contains(contentType)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Unsupported image content type: " + contentType);
+            }
+            try (InputStream in = file.getInputStream()) {
+                VehicleImageStorageService.StoredObject stored = vehicleImageStorageService.store(
+                        new VehicleImageStorageService.StoreRequest(contentType, file.getSize(), in));
+                urls.add("/api/vehicles/" + vehicleId + "/photos/" + stored.storageKey());
+            } catch (IOException e) {
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Failed to store image");
+            }
+        }
+        vehicle.setImageUrls(urls);
+        return vehicleRepository.save(vehicle);
+    }
+
+    @Transactional(readOnly = true)
+    public VehicleImageDownload getVehicleImage(Long vehicleId, String storageKey) {
+        Vehicle vehicle = findVehicle(vehicleId);
+        String suffix = "/api/vehicles/" + vehicleId + "/photos/" + storageKey;
+        boolean owned = vehicle.getImageUrls().stream().anyMatch(u -> u.endsWith(suffix) || u.endsWith("/photos/" + storageKey));
+        if (!owned) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Image not found for this listing");
+        }
+        try {
+            return new VehicleImageDownload(
+                    vehicleImageStorageService.open(storageKey),
+                    contentTypeForKey(storageKey));
+        } catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Image not found");
+        }
+    }
+
+    public Vehicle deleteVehicleImage(Long dealerId, Long vehicleId, String storageKey) {
+        Dealer dealer = findApprovedDealer(dealerId);
+        Vehicle vehicle = findVehicle(vehicleId);
+        if (!vehicle.getDealer().getId().equals(dealer.getId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Vehicle does not belong to this dealer");
+        }
+        List<String> urls = new ArrayList<>(vehicle.getImageUrls());
+        boolean removed = urls.removeIf(u -> u.endsWith("/photos/" + storageKey));
+        if (!removed) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Image not found for this listing");
+        }
+        vehicle.setImageUrls(urls);
+        Vehicle saved = vehicleRepository.save(vehicle);
+        try {
+            vehicleImageStorageService.delete(storageKey);
+        } catch (IOException ignored) {
+            // best-effort: row already updated; orphaned blob can be reaped later
+        }
+        return saved;
+    }
+
+    private String contentTypeForKey(String key) {
+        if (key.endsWith(".png")) {
+            return "image/png";
+        }
+        if (key.endsWith(".webp")) {
+            return "image/webp";
+        }
+        if (key.endsWith(".heic")) {
+            return "image/heic";
+        }
+        return "image/jpeg";
     }
 
     @Transactional(readOnly = true)
@@ -561,6 +673,10 @@ public class InventoryService {
             BigDecimal price,
             VehicleStatus status
     ) {
+        if (imageUrls != null && imageUrls.size() > maxImagesPerListing()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "A listing can have at most " + maxImagesPerListing() + " photos");
+        }
         vehicle.setDealer(dealer);
         vehicle.setVin(vin.toUpperCase());
         vehicle.setModelYear(modelYear);

@@ -408,6 +408,74 @@ class StealADealValidationTests {
     }
 
     @Test
+    void vehiclePhotoUploadStoresServesAndEnforcesTenLimit() throws Exception {
+        long dealerId = createAndApproveDealer();
+        String dealerToken = registerDealerUser(dealerId, "photo-dealer+" + dealerId + "@example.com");
+        long vehicleId = createVehicle(dealerId); // starts with 2 image URLs
+
+        byte[] jpeg = new byte[] {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 1, 2, 3};
+        org.springframework.mock.web.MockMultipartFile p1 =
+                new org.springframework.mock.web.MockMultipartFile("files", "front.jpg", "image/jpeg", jpeg);
+
+        MvcResult up = mockMvc.perform(multipart("/api/dealers/" + dealerId + "/inventory/" + vehicleId + "/photos")
+                        .file(p1)
+                        .header("Authorization", bearer(dealerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.imageUrls.length()").value(3))
+                .andReturn();
+
+        String body = up.getResponse().getContentAsString();
+        int idx = body.indexOf("/api/vehicles/" + vehicleId + "/photos/");
+        String url = body.substring(idx, body.indexOf('"', idx));
+
+        mockMvc.perform(get(url))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", "image/jpeg"))
+                .andExpect(mvcResult ->
+                        org.junit.jupiter.api.Assertions.assertArrayEquals(
+                                jpeg, mvcResult.getResponse().getContentAsByteArray()));
+
+        // 2 existing + 9 new = 11 > 10 -> rejected
+        org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder req =
+                multipart("/api/dealers/" + dealerId + "/inventory/" + vehicleId + "/photos");
+        for (int i = 0; i < 9; i++) {
+            req.file(new org.springframework.mock.web.MockMultipartFile(
+                    "files", "x" + i + ".jpg", "image/jpeg", jpeg));
+        }
+        mockMvc.perform(req.header("Authorization", bearer(dealerToken)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void createVehicleRejectsMoreThanTenImageUrls() throws Exception {
+        long dealerId = createAndApproveDealer();
+        String dealerToken = registerDealerUser(dealerId, "img-cap+" + dealerId + "@example.com");
+        StringBuilder urls = new StringBuilder();
+        for (int i = 0; i < 11; i++) {
+            urls.append(i == 0 ? "" : ",").append("\"https://example.com/p").append(i).append(".jpg\"");
+        }
+        String vin = "1HGCM82633A01" + String.format("%04d", (int) (System.nanoTime() % 10000));
+        mockMvc.perform(post("/api/vehicles")
+                        .header("Authorization", bearer(dealerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "dealerId": %d,
+                                  "vin": "%s",
+                                  "modelYear": 2023,
+                                  "make": "Honda",
+                                  "model": "Civic",
+                                  "trim": "EX",
+                                  "imageUrls": [%s],
+                                  "mileage": 1000,
+                                  "price": 21000.00,
+                                  "status": "LIVE"
+                                }
+                                """.formatted(dealerId, vin, urls)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void spaDeepLinkForwardsToShellWithoutAuth() throws Exception {
         // A client-side route (not /api, not a static file) must serve
         // the SPA shell so refresh/deep-link works, and without a token.
