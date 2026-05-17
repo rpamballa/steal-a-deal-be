@@ -19,11 +19,15 @@ import jakarta.validation.constraints.Pattern;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -76,6 +80,39 @@ public class VehicleController {
     @PreAuthorize("@accessControl.canAccessDealer(authentication, #dealerId)")
     public List<VehicleResponse> getDealerInventory(@PathVariable Long dealerId) {
         return inventoryService.getDealerInventory(dealerId).stream().map(VehicleResponse::from).toList();
+    }
+
+    @PostMapping(value = "/dealers/{dealerId}/inventory/{vehicleId}/photos",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("@accessControl.canAccessDealer(authentication, #dealerId)")
+    public VehicleResponse uploadVehiclePhotos(
+            @PathVariable Long dealerId,
+            @PathVariable Long vehicleId,
+            @RequestParam("files") List<MultipartFile> files
+    ) {
+        return VehicleResponse.from(inventoryService.addVehicleImages(dealerId, vehicleId, files));
+    }
+
+    @GetMapping("/vehicles/{vehicleId}/photos/{storageKey}")
+    public ResponseEntity<InputStreamResource> getVehiclePhoto(
+            @PathVariable Long vehicleId,
+            @PathVariable String storageKey
+    ) {
+        InventoryService.VehicleImageDownload image = inventoryService.getVehicleImage(vehicleId, storageKey);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "public, max-age=86400")
+                .contentType(MediaType.parseMediaType(image.contentType()))
+                .body(new InputStreamResource(image.content()));
+    }
+
+    @DeleteMapping("/dealers/{dealerId}/inventory/{vehicleId}/photos/{storageKey}")
+    @PreAuthorize("@accessControl.canAccessDealer(authentication, #dealerId)")
+    public VehicleResponse deleteVehiclePhoto(
+            @PathVariable Long dealerId,
+            @PathVariable Long vehicleId,
+            @PathVariable String storageKey
+    ) {
+        return VehicleResponse.from(inventoryService.deleteVehicleImage(dealerId, vehicleId, storageKey));
     }
 
     @PostMapping("/dealers/{dealerId}/inventory/vin")

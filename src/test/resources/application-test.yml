@@ -35,3 +35,8 @@ app:
       provider: local
       root: ${java.io.tmpdir}/stealadeal-tests/documents
       max-bytes: 5242880
+    vehicle-images:
+      provider: local
+      root: ${java.io.tmpdir}/stealadeal-tests/vehicle-images
+      max-bytes: 5242880
+      max-per-listing: 10

@@ -155,6 +155,7 @@ real deal end-to-end" milestone.
 | No container/LB health probe | High | `spring-boot-starter-actuator`; public `/actuator/health[/readiness|/liveness]` |
 | CORS hard-coded to localhost | Medium | `CORS_ALLOWED_ORIGINS` env, prod default non-localhost |
 | F&I entities had no `@Table`; prod `validate` failed on Postgres (acronym class → `dealfandiproduct` vs migration `deal_f_and_i_product`) | **Critical** | Explicit `@Table` on `FAndIProduct`/`DealFAndIProduct`; verified by booting prod profile against Docker Postgres |
+| Car photos were external URL strings only (no object storage; broken/expired images, hotlinking) | High | `VehicleImageStorageService` SPI + local adapter (S3 drop-in via `app.storage.vehicle-images.provider`); upload/serve/delete endpoints; hard 10-photo/listing cap enforced on upload **and** every bulk path (create/update/CSV/JSON feed/VIN). Stripe-style provider switch. Follow-up: background re-hosting of feed-supplied external URLs |
 
 Tested: full suite green (deterministic since the per-context test-DB
 isolation fix); added coverage for the SPA forward and the public

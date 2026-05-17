@@ -46,3 +46,11 @@ app:
       # dedicated "Stress Test Motors" dealer + N synthetic listings.
       enabled: false
       vehicle-count: 100
+  storage:
+    vehicle-images:
+      # Car photos. Local filesystem by default; swap to an S3/CDN
+      # adapter via provider=s3. Hard cap of 10 photos per listing.
+      provider: local
+      root: var/vehicle-images
+      max-bytes: 8388608
+      max-per-listing: 10
