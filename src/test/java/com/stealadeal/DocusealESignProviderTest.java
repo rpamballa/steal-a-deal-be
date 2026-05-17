@@ -62,4 +62,21 @@ class DocusealESignProviderTest {
     void blankBodyIsRejected() {
         Assertions.assertNull(eSignProvider.parseWebhookEvent("whtest", ""));
     }
+
+    @Test
+    void createEnvelopeFailsFastWhenTemplateIdMissing() {
+        // No app.esign.docuseal-template-id configured in this context.
+        // Must fail before any network call (free DocuSeal needs a
+        // UI-built template id).
+        var req = new ESignProvider.CreateEnvelopeRequest(
+                1L, 1L, "BUYER_AGREEMENT", "Buyer", "buyer@example.com",
+                "application/pdf", 0L,
+                new java.io.ByteArrayInputStream(new byte[0]),
+                java.util.Map.of("buyer_name", "Buyer"));
+        org.springframework.web.server.ResponseStatusException ex =
+                Assertions.assertThrows(
+                        org.springframework.web.server.ResponseStatusException.class,
+                        () -> eSignProvider.createEnvelope(req));
+        Assertions.assertEquals(503, ex.getStatusCode().value());
+    }
 }

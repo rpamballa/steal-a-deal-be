@@ -86,7 +86,7 @@ required — each is a drop-in bean + `app.*.provider` switch.
 | Capability | Switch | Needs |
 |---|---|---|
 | Billing (subscription, deposit PaymentIntent, tx-fee) | `app.billing.provider=stripe` | Stripe keys + webhook secret; implement `StripeBillingProvider` |
-| E-sign (buyer agreement) | `app.esign.provider=docuseal` | **Adapter implemented** (self-hosted DocuSeal, no per-signature cost). Needs: a running DocuSeal instance + `DOCUSEAL_BASE_URL`/`DOCUSEAL_API_TOKEN`/`DOCUSEAL_WEBHOOK_SECRET` via secrets manager. Webhook parsing unit-tested offline; create/status endpoint shapes must be verified against the live instance |
+| E-sign (buyer agreement) | `app.esign.provider=docuseal` | **Verified end-to-end against a live DocuSeal** (free edition). Free DocuSeal can't API-ingest a per-deal PDF, so signing uses a fixed UI-built template + pushed field values (see docs/docuseal-esign.md). Remaining go-live step: build the real counsel-approved template in the DocuSeal UI with the documented field names, set `DOCUSEAL_TEMPLATE_ID` + `DOCUSEAL_BASE_URL`/`DOCUSEAL_API_TOKEN`/`DOCUSEAL_WEBHOOK_SECRET` via secrets manager, and register the webhook |
 | Buyer agreement document | n/a (in-app) | **Implemented** — `BuyerAgreementPdfRenderer` (OpenPDF) renders the agreement PDF from live deal data; `POST /api/deals/{id}/documents/buyer-agreement/generate` stores it as the BUYER_AGREEMENT document, then the existing sign flow sends it to DocuSeal. Legal-text wording should be reviewed by counsel before launch |
 | Document storage | `app.storage.documents.provider=s3` | S3 bucket + IAM; implement `S3DocumentStorage` |
 | Notifications (email/SMS) | `app.notifications.provider=ses-twilio` | SES + Twilio creds; implement channels |

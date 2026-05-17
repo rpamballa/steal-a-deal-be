@@ -2,6 +2,7 @@ package com.stealadeal.service.esign;
 
 import com.stealadeal.domain.SigningStatus;
 import java.io.InputStream;
+import java.util.Map;
 
 /**
  * SPI for the e-signature backend that handles signed agreements for
@@ -21,7 +22,13 @@ public interface ESignProvider {
             String signerEmail,
             String contentType,
             long sizeBytes,
-            InputStream content
+            InputStream content,
+            /**
+             * Prefilled field values for template-based providers
+             * (e.g. free DocuSeal). PDF/upload-based providers ignore
+             * this; template-based providers ignore {@link #content}.
+             */
+            Map<String, String> fieldValues
     ) {
     }
 

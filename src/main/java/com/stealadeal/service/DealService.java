@@ -533,6 +533,31 @@ public class DealService {
         return saved;
     }
 
+    /**
+     * Field values pushed to the DocuSeal template (free edition cannot
+     * ingest a per-deal PDF via API). The keys here are the integration
+     * contract: the buyer-agreement template built in the DocuSeal UI
+     * must expose text fields with exactly these names, plus a
+     * Signature field for the signer.
+     */
+    private java.util.Map<String, String> buyerAgreementFieldValues(Deal deal) {
+        java.util.Map<String, String> v = new java.util.LinkedHashMap<>();
+        v.put("buyer_name", deal.getBuyerName());
+        v.put("buyer_email", deal.getBuyerEmail());
+        v.put("buyer_phone", deal.getBuyerPhone());
+        String addr = deal.getBuyerAddressLine1()
+                + (deal.getBuyerAddressLine2() == null || deal.getBuyerAddressLine2().isBlank()
+                        ? "" : ", " + deal.getBuyerAddressLine2())
+                + ", " + deal.getBuyerCity() + ", " + deal.getBuyerState() + " " + deal.getBuyerPostalCode();
+        v.put("buyer_address", addr);
+        v.put("dealer", deal.getVehicle().getDealer().getName());
+        v.put("vehicle", deal.getVehicle().getModelYear() + " " + deal.getVehicle().getMake()
+                + " " + deal.getVehicle().getModel() + " " + deal.getVehicle().getTrim());
+        v.put("vin", deal.getVehicle().getVin());
+        v.put("price_total", "$" + deal.getTotalAmount().setScale(2, RoundingMode.HALF_UP));
+        return v;
+    }
+
     public DealDocument requestDocumentSignature(Long dealId, Long documentId) {
         Deal deal = findDeal(dealId);
         DealDocument document = dealDocumentRepository.findById(documentId)
@@ -540,15 +565,19 @@ public class DealService {
         if (!document.getDeal().getId().equals(dealId)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document does not belong to this deal");
         }
-        if (document.getStorageKey() == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Upload the document before requesting signature");
-        }
         if (document.getSigningStatus() == SigningStatus.SIGNED) {
             return document;
         }
 
+        java.util.Map<String, String> fieldValues = buyerAgreementFieldValues(deal);
+
         ESignProvider.EnvelopeRef envelope;
-        try (InputStream content = documentStorageService.open(document.getStorageKey())) {
+        // Template-based providers (free DocuSeal) ignore the content
+        // stream and use fieldValues; PDF/upload providers use the
+        // stored content when present.
+        try (InputStream content = document.getStorageKey() != null
+                ? documentStorageService.open(document.getStorageKey())
+                : new java.io.ByteArrayInputStream(new byte[0])) {
             envelope = eSignProvider.createEnvelope(new ESignProvider.CreateEnvelopeRequest(
                     dealId,
                     documentId,
@@ -557,7 +586,8 @@ public class DealService {
                     deal.getBuyerEmail(),
                     document.getContentType(),
                     document.getSizeBytes() == null ? 0L : document.getSizeBytes(),
-                    content
+                    content,
+                    fieldValues
             ));
         } catch (IOException exception) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to open document for signing");
