@@ -6,7 +6,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record ESignProperties(
         String provider,
         String docusignApiKey,
-        String docusignWebhookSecret
+        String docusignWebhookSecret,
+        String docusealBaseUrl,
+        String docusealApiToken,
+        String docusealWebhookSecret
 ) {
 
     public ESignProperties {

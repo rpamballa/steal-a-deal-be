@@ -86,7 +86,7 @@ required — each is a drop-in bean + `app.*.provider` switch.
 | Capability | Switch | Needs |
 |---|---|---|
 | Billing (subscription, deposit PaymentIntent, tx-fee) | `app.billing.provider=stripe` | Stripe keys + webhook secret; implement `StripeBillingProvider` |
-| E-sign (buyer agreement) | `app.esign.provider=docusign` | DocuSign/Dropbox-Sign creds; implement adapter |
+| E-sign (buyer agreement) | `app.esign.provider=docuseal` | **Adapter implemented** (self-hosted DocuSeal, no per-signature cost). Needs: a running DocuSeal instance + `DOCUSEAL_BASE_URL`/`DOCUSEAL_API_TOKEN`/`DOCUSEAL_WEBHOOK_SECRET` via secrets manager. Webhook parsing unit-tested offline; create/status endpoint shapes must be verified against the live instance |
 | Document storage | `app.storage.documents.provider=s3` | S3 bucket + IAM; implement `S3DocumentStorage` |
 | Notifications (email/SMS) | `app.notifications.provider=ses-twilio` | SES + Twilio creds; implement channels |
 | VIN decode | `app.vin.provider=nhtsa` | None — free public API (rate-limit aware) |

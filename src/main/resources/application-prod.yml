@@ -47,6 +47,14 @@ app:
     provider: ${BILLING_PROVIDER:stub}
     stripe-api-key: ${STRIPE_API_KEY:}
     stripe-webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
+  esign:
+    # Self-hosted DocuSeal. Defaults to stub until provisioned. Set
+    # ESIGN_PROVIDER=docuseal and supply base URL + token ONLY via the
+    # secrets manager — never commit them.
+    provider: ${ESIGN_PROVIDER:stub}
+    docuseal-base-url: ${DOCUSEAL_BASE_URL:}
+    docuseal-api-token: ${DOCUSEAL_API_TOKEN:}
+    docuseal-webhook-secret: ${DOCUSEAL_WEBHOOK_SECRET:}
   seed:
     demo:
       # Never seed demo accounts/data into a production database.
