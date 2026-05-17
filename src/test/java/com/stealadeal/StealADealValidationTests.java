@@ -954,6 +954,65 @@ class StealADealValidationTests {
     }
 
     @Test
+    void generatedBuyerAgreementIsPdfAndSignable() throws Exception {
+        long dealerId = createAndApproveDealer();
+        long vehicleId = createVehicle(dealerId);
+        String buyerEmail = "buyer+" + System.nanoTime() + "@example.com";
+        String buyerToken = registerBuyerUser(buyerEmail);
+
+        mockMvc.perform(post("/api/deals")
+                        .header("Authorization", bearer(buyerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "vehicleId": %d,
+                                  "buyerName": "Agreement Buyer",
+                                  "buyerEmail": "%s",
+                                  "buyerPhone": "4085550144",
+                                  "buyerAddressLine1": "1 Agreement Way",
+                                  "buyerCity": "San Jose",
+                                  "buyerState": "CA",
+                                  "buyerPostalCode": "95112",
+                                  "fulfillmentType": "PICKUP",
+                                  "tradeIn": false,
+                                  "tradeInOffer": 0.00,
+                                  "deliveryFee": 0.00,
+                                  "discountAmount": 0.00
+                                }
+                                """.formatted(vehicleId, buyerEmail)))
+                .andExpect(status().isCreated());
+        long dealId = dealRepository.findAll().stream()
+                .max(Comparator.comparing(deal -> deal.getId())).orElseThrow().getId();
+
+        mockMvc.perform(post("/api/deals/" + dealId + "/documents/buyer-agreement/generate")
+                        .header("Authorization", bearer(buyerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("BUYER_AGREEMENT"))
+                .andExpect(jsonPath("$.contentType").value("application/pdf"))
+                .andExpect(jsonPath("$.hasContent").value(true))
+                .andExpect(jsonPath("$.sizeBytes").isNumber());
+        long docId = dealDocumentRepository.findByDealId(dealId).stream()
+                .filter(d -> d.getType().name().equals("BUYER_AGREEMENT"))
+                .findFirst().orElseThrow().getId();
+
+        mockMvc.perform(get("/api/deals/" + dealId + "/documents/" + docId + "/download")
+                        .header("Authorization", bearer(buyerToken)))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", "application/pdf"))
+                .andExpect(mvcResult -> {
+                    byte[] body = mvcResult.getResponse().getContentAsByteArray();
+                    org.junit.jupiter.api.Assertions.assertTrue(body.length > 200);
+                    org.junit.jupiter.api.Assertions.assertEquals("%PDF",
+                            new String(body, 0, 4, java.nio.charset.StandardCharsets.US_ASCII));
+                });
+
+        mockMvc.perform(post("/api/deals/" + dealId + "/documents/" + docId + "/sign")
+                        .header("Authorization", bearer(buyerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.signingStatus").value("SENT"));
+    }
+
+    @Test
     void documentSignatureFlowEndsWithSignedAndApprovedStatus() throws Exception {
         long dealerId = createAndApproveDealer();
         long vehicleId = createVehicle(dealerId);

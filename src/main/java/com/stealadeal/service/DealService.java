@@ -22,6 +22,7 @@ import com.stealadeal.security.AuthenticatedUser;
 import com.stealadeal.service.billing.BillingProvider;
 import com.stealadeal.service.esign.ESignProvider;
 import com.stealadeal.service.storage.DocumentStorageService;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigDecimal;
@@ -92,6 +93,7 @@ public class DealService {
     private final BillingProvider billingProvider;
     private final TransactionFeeService transactionFeeService;
     private final AuditService auditService;
+    private final com.stealadeal.service.agreement.BuyerAgreementPdfRenderer buyerAgreementPdfRenderer;
 
     public DealService(
             DealRepository dealRepository,
@@ -104,7 +106,8 @@ public class DealService {
             ESignProvider eSignProvider,
             BillingProvider billingProvider,
             TransactionFeeService transactionFeeService,
-            AuditService auditService
+            AuditService auditService,
+            com.stealadeal.service.agreement.BuyerAgreementPdfRenderer buyerAgreementPdfRenderer
     ) {
         this.dealRepository = dealRepository;
         this.dealActivityRepository = dealActivityRepository;
@@ -117,6 +120,7 @@ public class DealService {
         this.billingProvider = billingProvider;
         this.transactionFeeService = transactionFeeService;
         this.auditService = auditService;
+        this.buyerAgreementPdfRenderer = buyerAgreementPdfRenderer;
     }
 
     public record DepositIntentView(String intentId, String clientSecret, String status, BigDecimal amount) {
@@ -401,6 +405,64 @@ public class DealService {
         );
         taskNotificationService.syncForDeal(deal);
         return document;
+    }
+
+    public DealDocument generateBuyerAgreement(Long dealId) {
+        Deal deal = findDeal(dealId);
+        byte[] pdf = buyerAgreementPdfRenderer.render(deal);
+
+        DocumentStorageService.StoredObject stored;
+        try (InputStream content = new ByteArrayInputStream(pdf)) {
+            stored = documentStorageService.store(new DocumentStorageService.StoreRequest(
+                    "application/pdf", pdf.length, content));
+        } catch (IOException exception) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Failed to store generated buyer agreement");
+        }
+
+        DealDocument document = dealDocumentRepository.findByDealIdAndType(dealId, DocumentType.BUYER_AGREEMENT)
+                .orElseGet(() -> {
+                    DealDocument d = new DealDocument();
+                    d.setDeal(deal);
+                    d.setType(DocumentType.BUYER_AGREEMENT);
+                    d.setCreatedAt(OffsetDateTime.now());
+                    return d;
+                });
+        String oldStorageKey = document.getStorageKey();
+        document.setStorageKey(stored.storageKey());
+        document.setContentType(stored.contentType());
+        document.setSizeBytes(stored.sizeBytes());
+        document.setFileName("buyer-agreement-deal-" + dealId + ".pdf");
+        document.setStatus(DocumentStatus.UPLOADED);
+        document.setSigningStatus(null);
+        document.setSigningEnvelopeId(null);
+        document.setUpdatedAt(OffsetDateTime.now());
+        DealDocument saved = dealDocumentRepository.save(document);
+
+        if (oldStorageKey != null && !oldStorageKey.equals(stored.storageKey())) {
+            try {
+                documentStorageService.delete(oldStorageKey);
+            } catch (IOException ignored) {
+                // best-effort cleanup of the superseded copy
+            }
+        }
+
+        if (deal.getStage() == DealStage.DEPOSIT_PAID || deal.getStage() == DealStage.INITIATED) {
+            deal.setStage(DealStage.DOCUMENTS_PENDING);
+            deal.setUpdatedAt(OffsetDateTime.now());
+            dealRepository.save(deal);
+        }
+        recordActivity(deal, "BUYER_AGREEMENT_GENERATED",
+                "Buyer agreement generated (" + saved.getSizeBytes() + " bytes)");
+        taskNotificationService.createNotification(
+                deal,
+                ParticipantType.BUYER,
+                deal.getBuyerEmail(),
+                "Buyer agreement ready",
+                "Your buyer agreement has been prepared and is ready to sign."
+        );
+        taskNotificationService.syncForDeal(deal);
+        return saved;
     }
 
     public DealDocument uploadDealDocumentContent(Long dealId, Long documentId, MultipartFile file) {

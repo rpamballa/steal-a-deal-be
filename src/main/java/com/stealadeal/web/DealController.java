@@ -146,6 +146,12 @@ public class DealController {
         return DealDocumentResponse.from(dealService.uploadDealDocumentContent(dealId, documentId, file));
     }
 
+    @PostMapping("/deals/{dealId}/documents/buyer-agreement/generate")
+    @PreAuthorize("@accessControl.canAccessDeal(authentication, #dealId)")
+    public DealDocumentResponse generateBuyerAgreement(@PathVariable Long dealId) {
+        return DealDocumentResponse.from(dealService.generateBuyerAgreement(dealId));
+    }
+
     @PostMapping("/deals/{dealId}/documents/{documentId}/sign")
     @PreAuthorize("@accessControl.canAccessDeal(authentication, #dealId)")
     public DealDocumentResponse requestDocumentSignature(
