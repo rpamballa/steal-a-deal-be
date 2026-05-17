@@ -55,6 +55,9 @@ app:
     docuseal-base-url: ${DOCUSEAL_BASE_URL:}
     docuseal-api-token: ${DOCUSEAL_API_TOKEN:}
     docuseal-webhook-secret: ${DOCUSEAL_WEBHOOK_SECRET:}
+    # Free DocuSeal has no API to push a per-deal PDF, so signing uses
+    # a fixed template built in the DocuSeal UI; this is its id.
+    docuseal-template-id: ${DOCUSEAL_TEMPLATE_ID:}
   seed:
     demo:
       # Never seed demo accounts/data into a production database.

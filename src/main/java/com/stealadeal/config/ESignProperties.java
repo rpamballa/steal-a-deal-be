@@ -9,7 +9,8 @@ public record ESignProperties(
         String docusignWebhookSecret,
         String docusealBaseUrl,
         String docusealApiToken,
-        String docusealWebhookSecret
+        String docusealWebhookSecret,
+        String docusealTemplateId
 ) {
 
     public ESignProperties {

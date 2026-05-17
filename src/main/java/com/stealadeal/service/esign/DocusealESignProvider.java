@@ -12,7 +12,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.Base64;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -43,6 +42,7 @@ public class DocusealESignProvider implements ESignProvider {
     private final String baseUrl;
     private final String apiToken;
     private final String webhookSecret;
+    private final String templateId;
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
@@ -58,6 +58,7 @@ public class DocusealESignProvider implements ESignProvider {
         this.baseUrl = properties.docusealBaseUrl().replaceAll("/+$", "");
         this.apiToken = properties.docusealApiToken();
         this.webhookSecret = properties.docusealWebhookSecret();
+        this.templateId = properties.docusealTemplateId();
     }
 
     @Override
@@ -67,28 +68,23 @@ public class DocusealESignProvider implements ESignProvider {
 
     @Override
     public EnvelopeRef createEnvelope(CreateEnvelopeRequest request) {
+        if (templateId == null || templateId.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "app.esign.docuseal-template-id is not set — build the buyer-agreement "
+                            + "template in the DocuSeal UI and configure its id (free DocuSeal "
+                            + "has no API to upload a per-deal PDF)");
+        }
         try {
-            byte[] pdf = request.content().readAllBytes();
-            String base64 = Base64.getEncoder().encodeToString(pdf);
-
-            String templateBody = mapper.createObjectNode()
-                    .put("name", request.documentTitle() + " (deal " + request.dealId() + ")")
-                    .set("documents", mapper.createArrayNode().add(mapper.createObjectNode()
-                            .put("name", request.documentTitle())
-                            .put("file", base64)))
-                    .toString();
-            JsonNode template = send("POST", "/templates/pdf", templateBody);
-            long templateId = template.path("id").asLong();
-            if (templateId == 0) {
-                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "DocuSeal template creation returned no id");
+            var values = mapper.createObjectNode();
+            if (request.fieldValues() != null) {
+                request.fieldValues().forEach((k, v) -> values.put(k, v == null ? "" : v));
             }
-
             var submitter = mapper.createObjectNode()
-                    .put("role", "Signer")
                     .put("email", request.signerEmail())
                     .put("name", request.signerName());
+            submitter.set("values", values);
             String submissionBody = mapper.createObjectNode()
-                    .put("template_id", templateId)
+                    .put("template_id", Long.parseLong(templateId.trim()))
                     .put("send_email", true)
                     .set("submitters", mapper.createArrayNode().add(submitter))
                     .toString();
@@ -99,6 +95,9 @@ public class DocusealESignProvider implements ESignProvider {
                 throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "DocuSeal submission returned no id");
             }
             return new EnvelopeRef(submissionId, SigningStatus.SENT);
+        } catch (NumberFormatException e) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "app.esign.docuseal-template-id must be numeric");
         } catch (IOException | InterruptedException e) {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
@@ -112,6 +111,10 @@ public class DocusealESignProvider implements ESignProvider {
         try {
             JsonNode submission = send("GET", "/submissions/" + envelopeId, null);
             String status = submission.path("status").asText("");
+            if (status.isBlank() && submission.path("submitters").isArray()
+                    && !submission.path("submitters").isEmpty()) {
+                status = submission.path("submitters").get(0).path("status").asText("");
+            }
             return new EnvelopeRef(envelopeId, mapStatus(status));
         } catch (IOException | InterruptedException e) {
             if (e instanceof InterruptedException) {
@@ -178,7 +181,7 @@ public class DocusealESignProvider implements ESignProvider {
             case "declined" -> SigningStatus.DECLINED;
             case "expired" -> SigningStatus.EXPIRED;
             case "archived", "canceled", "cancelled" -> SigningStatus.CANCELED;
-            case "pending", "sent", "opened", "" -> SigningStatus.SENT;
+            case "pending", "sent", "opened", "awaiting", "" -> SigningStatus.SENT;
             default -> SigningStatus.SENT;
         };
     }
@@ -196,7 +199,7 @@ public class DocusealESignProvider implements ESignProvider {
 
     private JsonNode send(String method, String path, String body) throws IOException, InterruptedException {
         HttpRequest.Builder b = HttpRequest.newBuilder()
-                .uri(URI.create(baseUrl + path))
+                .uri(URI.create(baseUrl + "/api" + path))
                 .timeout(Duration.ofSeconds(30))
                 .header("X-Auth-Token", apiToken)
                 .header("Content-Type", "application/json");
