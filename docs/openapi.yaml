@@ -85,6 +85,64 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /api/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Exchange a refresh token for a new access/refresh pair
+      operationId: refreshToken
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: New token pair issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/admin/dealers/{dealerId}/approve:
+    post:
+      tags: [Auth]
+      summary: Admin approves a dealer
+      operationId: adminApproveDealer
+      parameters:
+        - $ref: '#/components/parameters/DealerId'
+      responses:
+        '200':
+          description: Dealer approved
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/admin/dealers/{dealerId}/reject:
+    post:
+      tags: [Auth]
+      summary: Admin rejects a dealer with a reason
+      operationId: adminRejectDealer
+      parameters:
+        - $ref: '#/components/parameters/DealerId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RejectDealerRequest'
+      responses:
+        '200':
+          description: Dealer rejected
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /api/dealers:
     get:
       tags: [Dealers]
@@ -1218,12 +1276,30 @@ components:
         password:
           type: string
 
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+
+    RejectDealerRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+
     AuthResponse:
       type: object
-      required: [token, expiresAt, userId, displayName, email, role]
+      required: [token, refreshToken, expiresAt, userId, displayName, email, role]
       properties:
         token:
           type: string
+          description: JWT access token (HS256, ~15m TTL)
+        refreshToken:
+          type: string
+          description: Opaque rotating refresh token (~30d TTL)
         expiresAt:
           type: string
           format: date-time
@@ -2435,12 +2511,15 @@ components:
 
     ErrorResponse:
       type: object
-      required: [error, message]
+      required: [error, message, timestamp]
       properties:
         error:
           type: string
         message:
           type: string
+        timestamp:
+          type: string
+          format: date-time
 
     VehicleStatus:
       type: string

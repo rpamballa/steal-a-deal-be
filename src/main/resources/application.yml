@@ -35,6 +35,9 @@ app:
     bootstrap-admin-email: admin@stealadeal.local
     bootstrap-admin-password: Admin123!
     token-ttl-hours: 24
+    jwt-secret: ${JWT_SECRET:}
+    access-ttl-minutes: 15
+    refresh-ttl-days: 30
   seed:
     demo:
       # Demo dealers/vehicles/users for local dev. MUST be false in

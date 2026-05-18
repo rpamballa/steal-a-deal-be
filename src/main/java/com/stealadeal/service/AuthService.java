@@ -1,16 +1,18 @@
 package com.stealadeal.service;
 
 import com.stealadeal.config.AuthProperties;
-import com.stealadeal.domain.AuthToken;
+import com.stealadeal.domain.RefreshToken;
 import com.stealadeal.domain.UserAccount;
 import com.stealadeal.domain.UserRole;
-import com.stealadeal.repository.AuthTokenRepository;
 import com.stealadeal.repository.DealerRepository;
+import com.stealadeal.repository.RefreshTokenRepository;
 import com.stealadeal.repository.UserAccountRepository;
 import com.stealadeal.security.AuthenticatedUser;
+import com.stealadeal.security.JwtService;
+import java.security.SecureRandom;
 import java.time.OffsetDateTime;
+import java.util.Base64;
 import java.util.Optional;
-import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -35,6 +37,7 @@ public class AuthService {
 
     public record AuthResult(
             String token,
+            String refreshToken,
             OffsetDateTime expiresAt,
             Long userId,
             String displayName,
@@ -44,24 +47,29 @@ public class AuthService {
     ) {
     }
 
+    private static final SecureRandom RANDOM = new SecureRandom();
+
     private final UserAccountRepository userAccountRepository;
-    private final AuthTokenRepository authTokenRepository;
+    private final RefreshTokenRepository refreshTokenRepository;
     private final DealerRepository dealerRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuthProperties authProperties;
+    private final JwtService jwtService;
 
     public AuthService(
             UserAccountRepository userAccountRepository,
-            AuthTokenRepository authTokenRepository,
+            RefreshTokenRepository refreshTokenRepository,
             DealerRepository dealerRepository,
             PasswordEncoder passwordEncoder,
-            AuthProperties authProperties
+            AuthProperties authProperties,
+            JwtService jwtService
     ) {
         this.userAccountRepository = userAccountRepository;
-        this.authTokenRepository = authTokenRepository;
+        this.refreshTokenRepository = refreshTokenRepository;
         this.dealerRepository = dealerRepository;
         this.passwordEncoder = passwordEncoder;
         this.authProperties = authProperties;
+        this.jwtService = jwtService;
     }
 
     public void ensureBootstrapAdmin() {
@@ -110,7 +118,7 @@ public class AuthService {
         user.setCreatedAt(now);
         user.setUpdatedAt(now);
         userAccountRepository.save(user);
-        return createToken(user);
+        return issue(user);
     }
 
     public AuthResult login(LoginCommand command) {
@@ -119,16 +127,25 @@ public class AuthService {
         if (!passwordEncoder.matches(command.password(), user.getPasswordHash())) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
         }
-        return createToken(user);
+        return issue(user);
+    }
+
+    public AuthResult refresh(String refreshTokenValue) {
+        OffsetDateTime now = OffsetDateTime.now();
+        RefreshToken existing = refreshTokenRepository.findByToken(refreshTokenValue)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid refresh token"));
+        if (existing.isRevoked() || existing.getExpiresAt().isBefore(now)) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token expired or revoked");
+        }
+        // Rotate: revoke the presented token, issue a fresh pair.
+        existing.setRevoked(true);
+        refreshTokenRepository.save(existing);
+        return issue(existing.getUserAccount());
     }
 
     @Transactional(readOnly = true)
     public Optional<AuthenticatedUser> authenticate(String tokenValue) {
-        OffsetDateTime now = OffsetDateTime.now();
-        return authTokenRepository.findByToken(tokenValue)
-                .filter(token -> token.getExpiresAt().isAfter(now))
-                .map(AuthToken::getUserAccount)
-                .map(this::toPrincipal);
+        return jwtService.parse(tokenValue);
     }
 
     @Transactional(readOnly = true)
@@ -138,18 +155,24 @@ public class AuthService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
     }
 
-    private AuthResult createToken(UserAccount user) {
-        OffsetDateTime now = OffsetDateTime.now();
-        AuthToken token = new AuthToken();
-        token.setToken(UUID.randomUUID().toString().replace("-", "") + UUID.randomUUID().toString().replace("-", ""));
-        token.setUserAccount(user);
-        token.setCreatedAt(now);
-        token.setLastUsedAt(now);
-        token.setExpiresAt(now.plusHours(authProperties.tokenTtlHours()));
-        authTokenRepository.save(token);
+    private AuthResult issue(UserAccount user) {
+        JwtService.IssuedToken access = jwtService.issueAccessToken(user);
+
+        byte[] raw = new byte[48];
+        RANDOM.nextBytes(raw);
+        String refreshValue = Base64.getUrlEncoder().withoutPadding().encodeToString(raw);
+        RefreshToken refresh = new RefreshToken();
+        refresh.setToken(refreshValue);
+        refresh.setUserAccount(user);
+        refresh.setExpiresAt(OffsetDateTime.now().plusDays(authProperties.refreshTtlDays()));
+        refresh.setRevoked(false);
+        refresh.setCreatedAt(OffsetDateTime.now());
+        refreshTokenRepository.save(refresh);
+
         return new AuthResult(
-                token.getToken(),
-                token.getExpiresAt(),
+                access.token(),
+                refreshValue,
+                access.expiresAt(),
                 user.getId(),
                 user.getDisplayName(),
                 user.getEmail(),

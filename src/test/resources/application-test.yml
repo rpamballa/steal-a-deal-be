@@ -11,6 +11,10 @@ spring:
       max-request-size: 25MB
 
 app:
+  auth:
+    # Lift the /api/auth rate limit for the suite (it makes far more
+    # than 5 auth calls/min from 127.0.0.1). Prod default is 5.
+    rate-limit-per-minute: 100000
   notifications:
     # Keep the scheduled outbox poller from firing mid-suite; tests
     # drive NotificationOutboxProcessor.drainOutbox() explicitly.

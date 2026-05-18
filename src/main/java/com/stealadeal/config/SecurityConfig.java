@@ -66,7 +66,8 @@ public class SecurityConfig {
                         .authenticationEntryPoint((request, response, authException) -> {
                             response.setStatus(HttpStatus.UNAUTHORIZED.value());
                             response.setContentType("application/json");
-                            response.getWriter().write("{\"error\":\"Unauthorized\",\"message\":\"Authentication required\"}");
+                            response.getWriter().write("{\"error\":\"Unauthorized\",\"message\":\"Authentication required\",\"timestamp\":\""
+                                    + java.time.OffsetDateTime.now() + "\"}");
                         })
                         .accessDeniedHandler(accessDeniedHandler()))
                 .headers(headers -> headers.frameOptions(frameOptions -> frameOptions.disable()))
@@ -79,7 +80,8 @@ public class SecurityConfig {
         return (request, response, accessDeniedException) -> {
             response.setStatus(HttpStatus.FORBIDDEN.value());
             response.setContentType("application/json");
-            response.getWriter().write("{\"error\":\"Forbidden\",\"message\":\"Access denied\"}");
+            response.getWriter().write("{\"error\":\"Forbidden\",\"message\":\"Access denied\",\"timestamp\":\""
+                    + java.time.OffsetDateTime.now() + "\"}");
         };
     }
 
