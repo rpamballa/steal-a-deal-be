@@ -58,6 +58,52 @@ public class Vehicle {
     @Column
     private OffsetDateTime lastSeenAt;
 
+    @Enumerated(EnumType.STRING)
+    @Column
+    private BodyType bodyType;
+
+    @Enumerated(EnumType.STRING)
+    @Column
+    private FuelType fuelType;
+
+    @Column
+    private Integer combinedMpg;
+
+    @Column
+    private Long marketValueCents;
+
+    public BodyType getBodyType() {
+        return bodyType;
+    }
+
+    public void setBodyType(BodyType bodyType) {
+        this.bodyType = bodyType;
+    }
+
+    public FuelType getFuelType() {
+        return fuelType;
+    }
+
+    public void setFuelType(FuelType fuelType) {
+        this.fuelType = fuelType;
+    }
+
+    public Integer getCombinedMpg() {
+        return combinedMpg;
+    }
+
+    public void setCombinedMpg(Integer combinedMpg) {
+        this.combinedMpg = combinedMpg;
+    }
+
+    public Long getMarketValueCents() {
+        return marketValueCents;
+    }
+
+    public void setMarketValueCents(Long marketValueCents) {
+        this.marketValueCents = marketValueCents;
+    }
+
     public Long getId() {
         return id;
     }
