@@ -94,6 +94,7 @@ public class DealService {
     private final TransactionFeeService transactionFeeService;
     private final AuditService auditService;
     private final com.stealadeal.service.agreement.BuyerAgreementPdfRenderer buyerAgreementPdfRenderer;
+    private final com.stealadeal.service.agreement.DisclosurePdfRenderer disclosurePdfRenderer;
 
     public DealService(
             DealRepository dealRepository,
@@ -107,7 +108,8 @@ public class DealService {
             BillingProvider billingProvider,
             TransactionFeeService transactionFeeService,
             AuditService auditService,
-            com.stealadeal.service.agreement.BuyerAgreementPdfRenderer buyerAgreementPdfRenderer
+            com.stealadeal.service.agreement.BuyerAgreementPdfRenderer buyerAgreementPdfRenderer,
+            com.stealadeal.service.agreement.DisclosurePdfRenderer disclosurePdfRenderer
     ) {
         this.dealRepository = dealRepository;
         this.dealActivityRepository = dealActivityRepository;
@@ -121,6 +123,7 @@ public class DealService {
         this.transactionFeeService = transactionFeeService;
         this.auditService = auditService;
         this.buyerAgreementPdfRenderer = buyerAgreementPdfRenderer;
+        this.disclosurePdfRenderer = disclosurePdfRenderer;
     }
 
     public record DepositIntentView(String intentId, String clientSecret, String status, BigDecimal amount) {
@@ -245,6 +248,11 @@ public class DealService {
         createDocument(savedDeal, DocumentType.BUYER_AGREEMENT, "buyer-agreement.pdf", DocumentStatus.REQUESTED);
         createDocument(savedDeal, DocumentType.DRIVER_LICENSE, "driver-license-upload", DocumentStatus.REQUESTED);
         createDocument(savedDeal, DocumentType.INSURANCE_PROOF, "insurance-proof-upload", DocumentStatus.REQUESTED);
+        // §8.3: odometer + AS-IS disclosures are mandatory on every deal.
+        // Created REQUESTED so the existing readiness/stage gating blocks
+        // handoff until both are generated, signed, and approved.
+        createDocument(savedDeal, DocumentType.ODOMETER_DISCLOSURE, "odometer-disclosure.pdf", DocumentStatus.REQUESTED);
+        createDocument(savedDeal, DocumentType.AS_IS_DISCLOSURE, "as-is-disclosure.pdf", DocumentStatus.REQUESTED);
         recordActivity(savedDeal, "DEAL_CREATED", "Deal created for " + savedDeal.getBuyerName());
         taskNotificationService.createNotification(
                 savedDeal,
@@ -460,6 +468,102 @@ public class DealService {
                 deal.getBuyerEmail(),
                 "Buyer agreement ready",
                 "Your buyer agreement has been prepared and is ready to sign."
+        );
+        taskNotificationService.syncForDeal(deal);
+        return saved;
+    }
+
+    public DealDocument generateOdometerDisclosure(Long dealId) {
+        Deal deal = findDeal(dealId);
+        return storeGeneratedDocument(
+                deal,
+                DocumentType.ODOMETER_DISCLOSURE,
+                disclosurePdfRenderer.renderOdometer(deal),
+                "odometer-disclosure-deal-" + dealId + ".pdf",
+                "ODOMETER_DISCLOSURE_GENERATED",
+                "Odometer disclosure",
+                "Odometer disclosure generated",
+                "Your odometer disclosure has been prepared and is ready to sign.");
+    }
+
+    public DealDocument generateAsIsDisclosure(Long dealId) {
+        Deal deal = findDeal(dealId);
+        return storeGeneratedDocument(
+                deal,
+                DocumentType.AS_IS_DISCLOSURE,
+                disclosurePdfRenderer.renderAsIs(deal),
+                "as-is-disclosure-deal-" + dealId + ".pdf",
+                "AS_IS_DISCLOSURE_GENERATED",
+                "AS-IS disclosure",
+                "AS-IS disclosure generated",
+                "Your AS-IS disclosure has been prepared and is ready to sign.");
+    }
+
+    /**
+     * Shared store-and-register path for server-generated PDFs (mirrors
+     * {@link #generateBuyerAgreement}): persist the rendered PDF, upsert
+     * the typed {@link DealDocument}, advance the deal into
+     * DOCUMENTS_PENDING, and notify the buyer.
+     */
+    private DealDocument storeGeneratedDocument(
+            Deal deal,
+            DocumentType type,
+            byte[] pdf,
+            String fileName,
+            String activityType,
+            String activityLabel,
+            String notificationTitle,
+            String notificationMessage
+    ) {
+        DocumentStorageService.StoredObject stored;
+        try (InputStream content = new ByteArrayInputStream(pdf)) {
+            stored = documentStorageService.store(new DocumentStorageService.StoreRequest(
+                    "application/pdf", pdf.length, content));
+        } catch (IOException exception) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Failed to store generated " + activityLabel);
+        }
+
+        DealDocument document = dealDocumentRepository.findByDealIdAndType(deal.getId(), type)
+                .orElseGet(() -> {
+                    DealDocument d = new DealDocument();
+                    d.setDeal(deal);
+                    d.setType(type);
+                    d.setCreatedAt(OffsetDateTime.now());
+                    return d;
+                });
+        String oldStorageKey = document.getStorageKey();
+        document.setStorageKey(stored.storageKey());
+        document.setContentType(stored.contentType());
+        document.setSizeBytes(stored.sizeBytes());
+        document.setFileName(fileName);
+        document.setStatus(DocumentStatus.UPLOADED);
+        document.setSigningStatus(null);
+        document.setSigningEnvelopeId(null);
+        document.setUpdatedAt(OffsetDateTime.now());
+        DealDocument saved = dealDocumentRepository.save(document);
+
+        if (oldStorageKey != null && !oldStorageKey.equals(stored.storageKey())) {
+            try {
+                documentStorageService.delete(oldStorageKey);
+            } catch (IOException ignored) {
+                // best-effort cleanup of the superseded copy
+            }
+        }
+
+        if (deal.getStage() == DealStage.DEPOSIT_PAID || deal.getStage() == DealStage.INITIATED) {
+            deal.setStage(DealStage.DOCUMENTS_PENDING);
+            deal.setUpdatedAt(OffsetDateTime.now());
+            dealRepository.save(deal);
+        }
+        recordActivity(deal, activityType,
+                activityLabel + " generated (" + saved.getSizeBytes() + " bytes)");
+        taskNotificationService.createNotification(
+                deal,
+                ParticipantType.BUYER,
+                deal.getBuyerEmail(),
+                notificationTitle,
+                notificationMessage
         );
         taskNotificationService.syncForDeal(deal);
         return saved;

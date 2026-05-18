@@ -400,6 +400,88 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/vehicles/{vehicleId}/history:
+    get:
+      tags: [Vehicles]
+      summary: Get the vehicle history report summary
+      description: >-
+        Public, like the vehicle endpoint. Returns 200 with
+        available:false (NOT 404) when no report is on file yet, so the
+        UI can render the honest "ask the dealer" state. 404 only when
+        the vehicle id itself is unknown.
+      operationId: getVehicleHistory
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/VehicleId'
+      responses:
+        '200':
+          description: History report (may be unavailable)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehicleHistoryReport'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/vehicles/{vehicleId}/history/report:
+    get:
+      tags: [Vehicles]
+      summary: Download the full vehicle history report PDF
+      description: Public. Streams the dealer-uploaded report PDF if present.
+      operationId: getVehicleHistoryReport
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/VehicleId'
+      responses:
+        '200':
+          description: Report PDF
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/dealers/{dealerId}/inventory/{vehicleId}/history:
+    post:
+      tags: [Vehicles]
+      summary: Upload a vehicle history report PDF (dealer-only)
+      description: >-
+        Stores the PDF and marks the report source DEALER_UPLOAD.
+        403 if the dealer does not own the vehicle; 400 on a non-PDF or
+        oversized (>15MB) file.
+      operationId: uploadVehicleHistory
+      parameters:
+        - $ref: '#/components/parameters/DealerId'
+        - $ref: '#/components/parameters/VehicleId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Report stored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehicleHistoryReport'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /api/vehicles/{vehicleId}/leads:
     post:
       tags: [Leads]
@@ -747,6 +829,49 @@ paths:
                 $ref: '#/components/schemas/DealDocument'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/deals/{dealId}/documents/odometer/generate:
+    post:
+      tags: [Deals]
+      summary: Generate the odometer disclosure PDF for a deal
+      description: >-
+        §8.3 regulatory disclosure. Renders a deal-specific Odometer
+        Disclosure, stores it as the ODOMETER_DISCLOSURE document, and
+        readies it for signing. The deal cannot pass DOCUMENTS until this
+        (and the AS-IS disclosure) is signed/approved.
+      operationId: generateOdometerDisclosure
+      parameters:
+        - $ref: '#/components/parameters/DealId'
+      responses:
+        '200':
+          description: Odometer disclosure generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DealDocument'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/deals/{dealId}/documents/as-is/generate:
+    post:
+      tags: [Deals]
+      summary: Generate the AS-IS disclosure PDF for a deal
+      description: >-
+        §8.3 regulatory disclosure. Renders a deal-specific AS-IS / No
+        Warranty buyers-guide acknowledgement, stores it as the
+        AS_IS_DISCLOSURE document, and readies it for signing.
+      operationId: generateAsIsDisclosure
+      parameters:
+        - $ref: '#/components/parameters/DealId'
+      responses:
+        '200':
+          description: AS-IS disclosure generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DealDocument'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -2822,6 +2947,8 @@ components:
         - DRIVER_LICENSE
         - INSURANCE_PROOF
         - TITLE_DISCLOSURE
+        - ODOMETER_DISCLOSURE
+        - AS_IS_DISCLOSURE
 
     DocumentStatus:
       type: string
@@ -2945,3 +3072,64 @@ components:
           format: date-time
         lastMatchedCount:
           type: integer
+
+    HistoryReportSource:
+      type: string
+      enum:
+        - PROVIDER
+        - DEALER_UPLOAD
+
+    VehicleHistorySummary:
+      type: object
+      description: >-
+        Parsed history facts. All fields nullable: a dealer-uploaded PDF
+        carries the artifact without a parsed summary.
+      properties:
+        ownerCount:
+          type: integer
+          nullable: true
+        accidentCount:
+          type: integer
+          nullable: true
+        titleBrand:
+          type: string
+          nullable: true
+          description: e.g. CLEAN, SALVAGE, REBUILT
+        lastReportedOdometer:
+          type: integer
+          nullable: true
+        odometerRollbackSuspected:
+          type: boolean
+          nullable: true
+        openRecallCount:
+          type: integer
+          nullable: true
+        serviceRecordCount:
+          type: integer
+          nullable: true
+
+    VehicleHistoryReport:
+      type: object
+      required: [vehicleId, available]
+      properties:
+        vehicleId:
+          type: integer
+          format: int64
+        available:
+          type: boolean
+          description: false = no report on file yet (still HTTP 200)
+        source:
+          $ref: '#/components/schemas/HistoryReportSource'
+        providerName:
+          type: string
+          nullable: true
+        reportUrl:
+          type: string
+          nullable: true
+          description: Signed/public URL to the full PDF if any
+        generatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        summary:
+          $ref: '#/components/schemas/VehicleHistorySummary'

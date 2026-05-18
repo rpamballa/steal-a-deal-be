@@ -152,6 +152,18 @@ public class DealController {
         return DealDocumentResponse.from(dealService.generateBuyerAgreement(dealId));
     }
 
+    @PostMapping("/deals/{dealId}/documents/odometer/generate")
+    @PreAuthorize("@accessControl.canAccessDeal(authentication, #dealId)")
+    public DealDocumentResponse generateOdometerDisclosure(@PathVariable Long dealId) {
+        return DealDocumentResponse.from(dealService.generateOdometerDisclosure(dealId));
+    }
+
+    @PostMapping("/deals/{dealId}/documents/as-is/generate")
+    @PreAuthorize("@accessControl.canAccessDeal(authentication, #dealId)")
+    public DealDocumentResponse generateAsIsDisclosure(@PathVariable Long dealId) {
+        return DealDocumentResponse.from(dealService.generateAsIsDisclosure(dealId));
+    }
+
     @PostMapping("/deals/{dealId}/documents/{documentId}/sign")
     @PreAuthorize("@accessControl.canAccessDeal(authentication, #dealId)")
     public DealDocumentResponse requestDocumentSignature(
