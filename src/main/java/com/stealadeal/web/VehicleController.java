@@ -157,7 +157,8 @@ public class VehicleController {
                 request.imageUrls(),
                 request.mileage(),
                 request.price(),
-                request.status()
+                request.status(),
+                request.classification()
         ));
     }
 
@@ -180,7 +181,8 @@ public class VehicleController {
                                 vehicle.imageUrls(),
                                 vehicle.mileage(),
                                 vehicle.price(),
-                                vehicle.status()
+                                vehicle.status(),
+                                vehicle.classification()
                         ))
                         .toList()
         ));
@@ -210,7 +212,8 @@ public class VehicleController {
                 request.imageUrls(),
                 request.mileage(),
                 request.price(),
-                request.status()
+                request.status(),
+                request.classification()
         ));
     }
 
@@ -312,8 +315,15 @@ public class VehicleController {
             @NotNull List<@NotBlank String> imageUrls,
             @Min(0) int mileage,
             @DecimalMin("0.0") BigDecimal price,
-            @NotNull VehicleStatus status
+            @NotNull VehicleStatus status,
+            com.stealadeal.domain.BodyType bodyType,
+            com.stealadeal.domain.FuelType fuelType,
+            @Min(0) Integer combinedMpg,
+            @Min(0) Long marketValueCents
     ) {
+        InventoryService.VehicleClassification classification() {
+            return new InventoryService.VehicleClassification(bodyType, fuelType, combinedMpg, marketValueCents);
+        }
     }
 
     public record InventoryUploadRequest(
@@ -331,8 +341,15 @@ public class VehicleController {
             @NotNull List<@NotBlank String> imageUrls,
             @Min(0) int mileage,
             @NotNull @DecimalMin("0.0") BigDecimal price,
-            @NotNull VehicleStatus status
+            @NotNull VehicleStatus status,
+            com.stealadeal.domain.BodyType bodyType,
+            com.stealadeal.domain.FuelType fuelType,
+            @Min(0) Integer combinedMpg,
+            @Min(0) Long marketValueCents
     ) {
+        InventoryService.VehicleClassification classification() {
+            return new InventoryService.VehicleClassification(bodyType, fuelType, combinedMpg, marketValueCents);
+        }
     }
 
     public record VehicleResponse(
@@ -348,7 +365,11 @@ public class VehicleController {
             List<String> imageUrls,
             int mileage,
             BigDecimal price,
-            VehicleStatus status
+            VehicleStatus status,
+            com.stealadeal.domain.BodyType bodyType,
+            com.stealadeal.domain.FuelType fuelType,
+            Integer combinedMpg,
+            Long marketValueCents
     ) {
 
         static VehicleResponse from(Vehicle vehicle) {
@@ -365,7 +386,11 @@ public class VehicleController {
                     vehicle.getImageUrls(),
                     vehicle.getMileage(),
                     vehicle.getPrice(),
-                    vehicle.getStatus()
+                    vehicle.getStatus(),
+                    vehicle.getBodyType(),
+                    vehicle.getFuelType(),
+                    vehicle.getCombinedMpg(),
+                    vehicle.getMarketValueCents()
             );
         }
     }

@@ -61,6 +61,17 @@ public class InventoryService {
         REJECTED
     }
 
+    public record VehicleClassification(
+            com.stealadeal.domain.BodyType bodyType,
+            com.stealadeal.domain.FuelType fuelType,
+            Integer combinedMpg,
+            Long marketValueCents
+    ) {
+        public static VehicleClassification empty() {
+            return new VehicleClassification(null, null, null, null);
+        }
+    }
+
     public record InventoryUploadVehicle(
             String vin,
             int modelYear,
@@ -70,7 +81,8 @@ public class InventoryService {
             List<String> imageUrls,
             int mileage,
             BigDecimal price,
-            VehicleStatus status
+            VehicleStatus status,
+            VehicleClassification classification
     ) {
     }
 
@@ -106,6 +118,8 @@ public class InventoryService {
     private final AppointmentRepository appointmentRepository;
     private final VehicleImageStorageService vehicleImageStorageService;
     private final VehicleImageStorageProperties vehicleImageStorageProperties;
+    private final org.springframework.beans.factory.ObjectProvider<com.stealadeal.service.buyer.PriceDropWatcher>
+            priceDropWatcher;
 
     public InventoryService(
             DealerRepository dealerRepository,
@@ -113,7 +127,9 @@ public class InventoryService {
             LeadRepository leadRepository,
             AppointmentRepository appointmentRepository,
             VehicleImageStorageService vehicleImageStorageService,
-            VehicleImageStorageProperties vehicleImageStorageProperties
+            VehicleImageStorageProperties vehicleImageStorageProperties,
+            org.springframework.beans.factory.ObjectProvider<com.stealadeal.service.buyer.PriceDropWatcher>
+                    priceDropWatcher
     ) {
         this.dealerRepository = dealerRepository;
         this.vehicleRepository = vehicleRepository;
@@ -121,6 +137,7 @@ public class InventoryService {
         this.appointmentRepository = appointmentRepository;
         this.vehicleImageStorageService = vehicleImageStorageService;
         this.vehicleImageStorageProperties = vehicleImageStorageProperties;
+        this.priceDropWatcher = priceDropWatcher;
     }
 
     private int maxImagesPerListing() {
@@ -254,9 +271,27 @@ public class InventoryService {
             BigDecimal price,
             VehicleStatus status
     ) {
+        return createVehicle(dealerId, vin, modelYear, make, model, trim, imageUrls, mileage, price, status,
+                VehicleClassification.empty());
+    }
+
+    public Vehicle createVehicle(
+            Long dealerId,
+            String vin,
+            int modelYear,
+            String make,
+            String model,
+            String trim,
+            List<String> imageUrls,
+            int mileage,
+            BigDecimal price,
+            VehicleStatus status,
+            VehicleClassification classification
+    ) {
         Dealer dealer = findApprovedDealer(dealerId);
         Vehicle vehicle = new Vehicle();
-        applyVehicle(vehicle, dealer, vin, modelYear, make, model, trim, imageUrls, mileage, price, status);
+        applyVehicle(vehicle, dealer, vin, modelYear, make, model, trim, imageUrls, mileage, price, status,
+                classification);
         return vehicleRepository.save(vehicle);
     }
 
@@ -345,7 +380,8 @@ public class InventoryService {
                             parseImageUrls(requiredValue(record, "imageUrls")),
                             Integer.parseInt(record.get("mileage")),
                             new BigDecimal(record.get("price")),
-                            VehicleStatus.valueOf(requiredValue(record, "status").toUpperCase())
+                            VehicleStatus.valueOf(requiredValue(record, "status").toUpperCase()),
+                            csvClassification(record)
                     );
                     InventoryUploadRowResult rowResult = processUploadRow(dealer, mode, rowNumber, vehicle);
                     rows.add(rowResult);
@@ -422,7 +458,8 @@ public class InventoryService {
                             requestVehicle.imageUrls(),
                             requestVehicle.mileage(),
                             requestVehicle.price(),
-                            requestVehicle.status()
+                            requestVehicle.status(),
+                            requestVehicle.classification()
                     )
             );
             rows.add(rowResult);
@@ -487,7 +524,8 @@ public class InventoryService {
                 requestVehicle.imageUrls(),
                 requestVehicle.mileage(),
                 requestVehicle.price(),
-                requestVehicle.status()
+                requestVehicle.status(),
+                requestVehicle.classification()
         );
         Vehicle savedVehicle = vehicleRepository.save(targetVehicle);
         return new InventoryUploadRowResult(
@@ -512,9 +550,28 @@ public class InventoryService {
             BigDecimal price,
             VehicleStatus status
     ) {
+        return updateVehicle(vehicleId, dealerId, vin, modelYear, make, model, trim, imageUrls, mileage, price,
+                status, VehicleClassification.empty());
+    }
+
+    public Vehicle updateVehicle(
+            Long vehicleId,
+            Long dealerId,
+            String vin,
+            int modelYear,
+            String make,
+            String model,
+            String trim,
+            List<String> imageUrls,
+            int mileage,
+            BigDecimal price,
+            VehicleStatus status,
+            VehicleClassification classification
+    ) {
         Vehicle vehicle = findVehicle(vehicleId);
         Dealer dealer = findApprovedDealer(dealerId);
-        applyVehicle(vehicle, dealer, vin, modelYear, make, model, trim, imageUrls, mileage, price, status);
+        applyVehicle(vehicle, dealer, vin, modelYear, make, model, trim, imageUrls, mileage, price, status,
+                classification);
         return vehicleRepository.save(vehicle);
     }
 
@@ -671,12 +728,15 @@ public class InventoryService {
             List<String> imageUrls,
             int mileage,
             BigDecimal price,
-            VehicleStatus status
+            VehicleStatus status,
+            VehicleClassification classification
     ) {
         if (imageUrls != null && imageUrls.size() > maxImagesPerListing()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "A listing can have at most " + maxImagesPerListing() + " photos");
         }
+        BigDecimal previousPrice = vehicle.getId() != null ? vehicle.getPrice() : null;
+        VehicleStatus previousStatus = vehicle.getId() != null ? vehicle.getStatus() : null;
         vehicle.setDealer(dealer);
         vehicle.setVin(vin.toUpperCase());
         vehicle.setModelYear(modelYear);
@@ -688,6 +748,70 @@ public class InventoryService {
         vehicle.setPrice(price);
         vehicle.setStatus(status);
         vehicle.setLastSeenAt(OffsetDateTime.now());
+        if (classification != null) {
+            vehicle.setBodyType(classification.bodyType());
+            vehicle.setFuelType(classification.fuelType());
+            vehicle.setCombinedMpg(classification.combinedMpg());
+            vehicle.setMarketValueCents(classification.marketValueCents());
+        }
+        if (previousPrice != null
+                && price != null
+                && price.compareTo(previousPrice) < 0
+                && status == VehicleStatus.LIVE) {
+            final BigDecimal from = previousPrice;
+            final BigDecimal to = price;
+            priceDropWatcher.ifAvailable(w -> w.onPriceDrop(vehicle, from, to));
+        }
+    }
+
+    private VehicleClassification csvClassification(CSVRecord record) {
+        return new VehicleClassification(
+                parseEnum(csvOptional(record, "bodyType"), com.stealadeal.domain.BodyType.class),
+                parseEnum(csvOptional(record, "fuelType"), com.stealadeal.domain.FuelType.class),
+                parseInteger(csvOptional(record, "combinedMpg")),
+                parseLong(csvOptional(record, "marketValueCents"))
+        );
+    }
+
+    private String csvOptional(CSVRecord record, String column) {
+        if (!record.isMapped(column) || !record.isSet(column)) {
+            return null;
+        }
+        String value = record.get(column);
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private <E extends Enum<E>> E parseEnum(String value, Class<E> type) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Enum.valueOf(type, value.toUpperCase());
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
+    private Integer parseInteger(String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Integer.valueOf(value);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private Long parseLong(String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Long.valueOf(value);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     private void validateCsvHeaders(CSVParser parser) {
