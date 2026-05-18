@@ -326,6 +326,8 @@ class StealADealApplicationTests {
         long buyerAgreementId = documents.stream().filter(document -> document.getType().name().equals("BUYER_AGREEMENT")).findFirst().orElseThrow().getId();
         long driverLicenseId = documents.stream().filter(document -> document.getType().name().equals("DRIVER_LICENSE")).findFirst().orElseThrow().getId();
         long insuranceProofId = documents.stream().filter(document -> document.getType().name().equals("INSURANCE_PROOF")).findFirst().orElseThrow().getId();
+        long odometerDisclosureId = documents.stream().filter(document -> document.getType().name().equals("ODOMETER_DISCLOSURE")).findFirst().orElseThrow().getId();
+        long asIsDisclosureId = documents.stream().filter(document -> document.getType().name().equals("AS_IS_DISCLOSURE")).findFirst().orElseThrow().getId();
 
         mockMvc.perform(patch("/api/deals/" + dealId + "/documents/" + buyerAgreementId + "/status")
                         .header("Authorization", bearer(dealerToken))
@@ -350,6 +352,28 @@ class StealADealApplicationTests {
                 .andExpect(jsonPath("$.status").value("APPROVED"));
 
         mockMvc.perform(patch("/api/deals/" + dealId + "/documents/" + insuranceProofId + "/status")
+                        .header("Authorization", bearer(dealerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "status": "APPROVED"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("APPROVED"));
+
+        mockMvc.perform(patch("/api/deals/" + dealId + "/documents/" + odometerDisclosureId + "/status")
+                        .header("Authorization", bearer(dealerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "status": "APPROVED"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("APPROVED"));
+
+        mockMvc.perform(patch("/api/deals/" + dealId + "/documents/" + asIsDisclosureId + "/status")
                         .header("Authorization", bearer(dealerToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""

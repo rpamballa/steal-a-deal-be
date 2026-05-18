@@ -56,6 +56,10 @@ public class SecurityConfig {
                         .requestMatchers("/h2-console/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/vehicles", "/api/vehicles/*").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/vehicles/*/photos/*").permitAll()
+                        // History summary + report PDF are as browsable as
+                        // the vehicle itself (guests can see them).
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/vehicles/*/history", "/api/vehicles/*/history/report").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/dealers", "/api/dealers/*").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/dealers").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/vehicles/*/leads").permitAll()

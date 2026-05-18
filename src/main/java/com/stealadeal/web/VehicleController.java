@@ -47,13 +47,16 @@ public class VehicleController {
 
     private final InventoryService inventoryService;
     private final com.stealadeal.service.VinEnrichmentService vinEnrichmentService;
+    private final com.stealadeal.service.VehicleHistoryService vehicleHistoryService;
 
     public VehicleController(
             InventoryService inventoryService,
-            com.stealadeal.service.VinEnrichmentService vinEnrichmentService
+            com.stealadeal.service.VinEnrichmentService vinEnrichmentService,
+            com.stealadeal.service.VehicleHistoryService vehicleHistoryService
     ) {
         this.inventoryService = inventoryService;
         this.vinEnrichmentService = vinEnrichmentService;
+        this.vehicleHistoryService = vehicleHistoryService;
     }
 
     @GetMapping("/vehicles")
@@ -113,6 +116,33 @@ public class VehicleController {
             @PathVariable String storageKey
     ) {
         return VehicleResponse.from(inventoryService.deleteVehicleImage(dealerId, vehicleId, storageKey));
+    }
+
+    @GetMapping("/vehicles/{vehicleId}/history")
+    public VehicleHistoryReportResponse getVehicleHistory(@PathVariable Long vehicleId) {
+        return VehicleHistoryReportResponse.from(vehicleHistoryService.getReport(vehicleId));
+    }
+
+    @GetMapping("/vehicles/{vehicleId}/history/report")
+    public ResponseEntity<InputStreamResource> getVehicleHistoryReport(@PathVariable Long vehicleId) {
+        com.stealadeal.service.VehicleHistoryService.ReportDownload download =
+                vehicleHistoryService.downloadReport(vehicleId);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "private, max-age=300")
+                .contentType(MediaType.parseMediaType(download.contentType()))
+                .body(new InputStreamResource(download.content()));
+    }
+
+    @PostMapping(value = "/dealers/{dealerId}/inventory/{vehicleId}/history",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("@accessControl.canAccessDealer(authentication, #dealerId)")
+    public VehicleHistoryReportResponse uploadVehicleHistory(
+            @PathVariable Long dealerId,
+            @PathVariable Long vehicleId,
+            @RequestParam("file") MultipartFile file
+    ) {
+        return VehicleHistoryReportResponse.from(
+                vehicleHistoryService.uploadDealerReport(dealerId, vehicleId, file));
     }
 
     @PostMapping("/dealers/{dealerId}/inventory/vin")
@@ -392,6 +422,49 @@ public class VehicleController {
                     vehicle.getCombinedMpg(),
                     vehicle.getMarketValueCents()
             );
+        }
+    }
+
+    public record VehicleHistorySummaryResponse(
+            Integer ownerCount,
+            Integer accidentCount,
+            String titleBrand,
+            Integer lastReportedOdometer,
+            Boolean odometerRollbackSuspected,
+            Integer openRecallCount,
+            Integer serviceRecordCount
+    ) {
+    }
+
+    public record VehicleHistoryReportResponse(
+            Long vehicleId,
+            boolean available,
+            com.stealadeal.domain.HistoryReportSource source,
+            String providerName,
+            String reportUrl,
+            OffsetDateTime generatedAt,
+            VehicleHistorySummaryResponse summary
+    ) {
+
+        static VehicleHistoryReportResponse from(
+                com.stealadeal.service.VehicleHistoryService.ReportView view) {
+            VehicleHistorySummaryResponse summary = view.summary() == null ? null
+                    : new VehicleHistorySummaryResponse(
+                            view.summary().ownerCount(),
+                            view.summary().accidentCount(),
+                            view.summary().titleBrand(),
+                            view.summary().lastReportedOdometer(),
+                            view.summary().odometerRollbackSuspected(),
+                            view.summary().openRecallCount(),
+                            view.summary().serviceRecordCount());
+            return new VehicleHistoryReportResponse(
+                    view.vehicleId(),
+                    view.available(),
+                    view.source(),
+                    view.providerName(),
+                    view.reportUrl(),
+                    view.generatedAt(),
+                    summary);
         }
     }
 
