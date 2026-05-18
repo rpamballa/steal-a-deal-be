@@ -205,6 +205,17 @@ public class SeedDataConfig {
                     deal, DocumentType.INSURANCE_PROOF, DocumentStatus.REQUESTED, "insurance-proof-upload",
                     OffsetDateTime.now().minusHours(6)
             ));
+            // §8.3 regulatory disclosures are mandatory on every deal.
+            // The seeded deal is hand-built (not via DealService.createDeal),
+            // so add them explicitly to mirror real API-created deals.
+            dealDocumentRepository.save(document(
+                    deal, DocumentType.ODOMETER_DISCLOSURE, DocumentStatus.REQUESTED, "odometer-disclosure.pdf",
+                    OffsetDateTime.now().minusHours(6)
+            ));
+            dealDocumentRepository.save(document(
+                    deal, DocumentType.AS_IS_DISCLOSURE, DocumentStatus.REQUESTED, "as-is-disclosure.pdf",
+                    OffsetDateTime.now().minusHours(6)
+            ));
 
             dealActivityRepository.save(activity(deal, "DEAL_CREATED", "Deal created for Jordan Blake", OffsetDateTime.now().minusHours(10)));
             dealActivityRepository.save(activity(deal, "DEPOSIT_PAID", "Deposit recorded in the amount of 500.00", OffsetDateTime.now().minusHours(9)));
