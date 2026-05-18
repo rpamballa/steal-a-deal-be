@@ -476,6 +476,72 @@ class StealADealValidationTests {
     }
 
     @Test
+    void adminApproveAndRejectDealerEndpoints() throws Exception {
+        long approveId = createDealer("Approve Co", "CA-AP");
+        long rejectId = createDealer("Reject Co", "CA-RJ");
+        String admin = bearer(login("admin@stealadeal.local", "Admin123!"));
+
+        mockMvc.perform(post("/api/admin/dealers/" + approveId + "/approve")
+                        .header("Authorization", admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.approved").value(true));
+
+        mockMvc.perform(post("/api/admin/dealers/" + rejectId + "/reject")
+                        .header("Authorization", admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"License could not be verified\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.approved").value(false));
+
+        // Non-admin is forbidden.
+        long d = createAndApproveDealer();
+        String dealerTok = bearer(registerDealerUser(d, "rej-actor+" + d + "@example.com"));
+        mockMvc.perform(post("/api/admin/dealers/" + approveId + "/approve")
+                        .header("Authorization", dealerTok))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void jwtLoginIssuesAccessAndRotatingRefreshToken() throws Exception {
+        MvcResult login = mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"admin@stealadeal.local\",\"password\":\"Admin123!\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.token").isNotEmpty())
+                .andExpect(jsonPath("$.refreshToken").isNotEmpty())
+                .andReturn();
+        String body = login.getResponse().getContentAsString();
+        String access = extractField(body, "token");
+        String refresh = extractField(body, "refreshToken");
+
+        // JWT has the standard three dot-separated segments.
+        org.junit.jupiter.api.Assertions.assertEquals(3, access.split("\\.").length);
+
+        // Access token authenticates /me.
+        mockMvc.perform(get("/api/auth/me").header("Authorization", bearer(access)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("ADMIN"));
+
+        // Refresh rotates: new pair issued.
+        MvcResult refreshed = mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"" + refresh + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.token").isNotEmpty())
+                .andExpect(jsonPath("$.refreshToken").isNotEmpty())
+                .andReturn();
+        String access2 = extractField(refreshed.getResponse().getContentAsString(), "token");
+        mockMvc.perform(get("/api/auth/me").header("Authorization", bearer(access2)))
+                .andExpect(status().isOk());
+
+        // Old refresh token is revoked after rotation.
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"" + refresh + "\"}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void spaDeepLinkForwardsToShellWithoutAuth() throws Exception {
         // A client-side route (not /api, not a static file) must serve
         // the SPA shell so refresh/deep-link works, and without a token.

@@ -1,6 +1,7 @@
 package com.stealadeal.web;
 
 import jakarta.validation.ConstraintViolationException;
+import java.time.OffsetDateTime;
 import java.util.Map;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.http.HttpStatus;
@@ -14,12 +15,21 @@ import org.springframework.web.server.ResponseStatusException;
 @RestControllerAdvice
 public class ApiExceptionHandler {
 
+    private static Map<String, String> body(String error, String message) {
+        // §9.1 standardized error: { error, message, timestamp }
+        return Map.of(
+                "error", error,
+                "message", message,
+                "timestamp", OffsetDateTime.now().toString()
+        );
+    }
+
     @ExceptionHandler(ResponseStatusException.class)
     public ResponseEntity<Map<String, String>> handleResponseStatus(ResponseStatusException exception) {
         HttpStatus status = HttpStatus.valueOf(exception.getStatusCode().value());
-        return ResponseEntity.status(status).body(Map.of(
-                "error", status.getReasonPhrase(),
-                "message", exception.getReason() == null ? status.getReasonPhrase() : exception.getReason()
+        return ResponseEntity.status(status).body(body(
+                status.getReasonPhrase(),
+                exception.getReason() == null ? status.getReasonPhrase() : exception.getReason()
         ));
     }
 
@@ -30,18 +40,18 @@ public class ApiExceptionHandler {
                 .findFirst()
                 .map(error -> error.getField() + " " + error.getDefaultMessage())
                 .orElse("Invalid request");
-        return Map.of("error", "Bad Request", "message", message);
+        return body("Bad Request", message);
     }
 
     @ExceptionHandler(ConstraintViolationException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Map<String, String> handleConstraintViolation(ConstraintViolationException exception) {
-        return Map.of("error", "Bad Request", "message", exception.getMessage());
+        return body("Bad Request", exception.getMessage());
     }
 
     @ExceptionHandler(AccessDeniedException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public Map<String, String> handleAccessDenied(AccessDeniedException exception) {
-        return Map.of("error", "Forbidden", "message", "Access denied");
+        return body("Forbidden", "Access denied");
     }
 }

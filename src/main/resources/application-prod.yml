@@ -36,6 +36,10 @@ app:
     bootstrap-admin-email: ${BOOTSTRAP_ADMIN_EMAIL:admin@stealadeal.local}
     bootstrap-admin-password: ${BOOTSTRAP_ADMIN_PASSWORD}
     token-ttl-hours: ${AUTH_TOKEN_TTL_HOURS:24}
+    # MANDATORY in prod (§10). HS256 key, >=32 bytes, secrets manager.
+    jwt-secret: ${JWT_SECRET}
+    access-ttl-minutes: ${AUTH_ACCESS_TTL_MIN:15}
+    refresh-ttl-days: ${AUTH_REFRESH_TTL_DAYS:30}
   cors:
     # Comma-separated; Spring relaxed-binds to the List. Lock to the
     # real frontend origin(s) before go-live.

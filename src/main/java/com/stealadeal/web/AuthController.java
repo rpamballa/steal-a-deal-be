@@ -46,6 +46,11 @@ public class AuthController {
         return AuthResponse.from(authService.login(new AuthService.LoginCommand(request.email(), request.password())));
     }
 
+    @PostMapping("/refresh")
+    public AuthResponse refresh(@Valid @RequestBody RefreshRequest request) {
+        return AuthResponse.from(authService.refresh(request.refreshToken()));
+    }
+
     @GetMapping("/me")
     public CurrentUserResponse me(@AuthenticationPrincipal AuthenticatedUser user) {
         if (user == null) {
@@ -69,8 +74,14 @@ public class AuthController {
     ) {
     }
 
+    public record RefreshRequest(
+            @NotBlank String refreshToken
+    ) {
+    }
+
     public record AuthResponse(
             String token,
+            String refreshToken,
             String expiresAt,
             Long userId,
             String displayName,
@@ -82,6 +93,7 @@ public class AuthController {
         static AuthResponse from(AuthService.AuthResult result) {
             return new AuthResponse(
                     result.token(),
+                    result.refreshToken(),
                     result.expiresAt().toString(),
                     result.userId(),
                     result.displayName(),
