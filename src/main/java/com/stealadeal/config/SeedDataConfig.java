@@ -66,7 +66,15 @@ public class SeedDataConfig {
             PasswordEncoder passwordEncoder
     ) {
         return args -> {
-            if (dealerRepository.count() > 0) {
+            // Robust against stress-seeded / manually created dealers:
+            // key the "already seeded" check on the demo dealers' license
+            // numbers, NOT a global dealer count. The blanket count guard
+            // used to short-circuit the runner before the demo login
+            // accounts were created whenever ANY dealer existed.
+            Dealer existingWest = findDemoDealer(dealerRepository, "CA-11223");
+            Dealer existingUrban = findDemoDealer(dealerRepository, "TX-77889");
+            if (existingWest != null && existingUrban != null) {
+                ensureDemoUsers(userAccountRepository, passwordEncoder, existingWest, existingUrban);
                 return;
             }
 
@@ -278,10 +286,50 @@ public class SeedDataConfig {
                     null
             ));
 
-            userAccountRepository.save(user("West Coast Owner", "dealer1@stealadeal.local", "Dealer123!", UserRole.DEALER, westCoast.getId(), passwordEncoder));
-            userAccountRepository.save(user("Urban Drive Owner", "dealer2@stealadeal.local", "Dealer123!", UserRole.DEALER, urban.getId(), passwordEncoder));
-            userAccountRepository.save(user("Jordan Blake", "jordan@example.com", "Buyer123!", UserRole.BUYER, null, passwordEncoder));
+            ensureDemoUsers(userAccountRepository, passwordEncoder, westCoast, urban);
         };
+    }
+
+    private Dealer findDemoDealer(DealerRepository dealerRepository, String licenseNumber) {
+        return dealerRepository.findAll().stream()
+                .filter(d -> licenseNumber.equals(d.getLicenseNumber()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * Idempotently provisions the documented demo logins. Creating these
+     * by email (skip if present) means they survive partial seeds and
+     * coexistence with stress-seeded data, so the demo accounts always
+     * work in dev.
+     */
+    private void ensureDemoUsers(
+            UserAccountRepository userAccountRepository,
+            PasswordEncoder passwordEncoder,
+            Dealer westCoast,
+            Dealer urban
+    ) {
+        ensureUser(userAccountRepository, passwordEncoder, "West Coast Owner",
+                "dealer1@stealadeal.local", "Dealer123!", UserRole.DEALER, westCoast.getId());
+        ensureUser(userAccountRepository, passwordEncoder, "Urban Drive Owner",
+                "dealer2@stealadeal.local", "Dealer123!", UserRole.DEALER, urban.getId());
+        ensureUser(userAccountRepository, passwordEncoder, "Jordan Blake",
+                "jordan@example.com", "Buyer123!", UserRole.BUYER, null);
+    }
+
+    private void ensureUser(
+            UserAccountRepository userAccountRepository,
+            PasswordEncoder passwordEncoder,
+            String displayName,
+            String email,
+            String rawPassword,
+            UserRole role,
+            Long dealerId
+    ) {
+        if (userAccountRepository.findByEmailIgnoreCase(email).isPresent()) {
+            return;
+        }
+        userAccountRepository.save(user(displayName, email, rawPassword, role, dealerId, passwordEncoder));
     }
 
     private Vehicle vehicle(
