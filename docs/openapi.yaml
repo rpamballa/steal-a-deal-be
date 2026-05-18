@@ -1156,6 +1156,165 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/me/favorites:
+    get:
+      tags: [Buyer]
+      summary: List the authenticated buyer's favorites (garage)
+      operationId: listFavorites
+      responses:
+        '200':
+          description: Favorites returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Favorite'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Buyer]
+      summary: Add a vehicle to favorites (idempotent)
+      operationId: addFavorite
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddFavoriteRequest'
+      responses:
+        '200':
+          description: Vehicle was already favorited; existing row returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Favorite'
+        '201':
+          description: Favorite created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Favorite'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/me/favorites/{vehicleId}:
+    delete:
+      tags: [Buyer]
+      summary: Remove a vehicle from favorites (idempotent)
+      operationId: removeFavorite
+      parameters:
+        - $ref: '#/components/parameters/VehicleId'
+      responses:
+        '204':
+          description: Removed (or was not present)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/me/saved-searches:
+    get:
+      tags: [Buyer]
+      summary: List the authenticated buyer's saved searches
+      operationId: listSavedSearches
+      responses:
+        '200':
+          description: Saved searches returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SavedSearch'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Buyer]
+      summary: Create a saved search
+      operationId: createSavedSearch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SavedSearchInput'
+      responses:
+        '201':
+          description: Saved search created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedSearch'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/me/saved-searches/{id}:
+    patch:
+      tags: [Buyer]
+      summary: Update a saved search
+      operationId: updateSavedSearch
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SavedSearchInput'
+      responses:
+        '200':
+          description: Saved search updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedSearch'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Buyer]
+      summary: Delete a saved search
+      operationId: deleteSavedSearch
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '204':
+          description: Deleted (or was not present)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1430,6 +1589,27 @@ components:
           format: double
         status:
           $ref: '#/components/schemas/VehicleStatus'
+        bodyType:
+          $ref: '#/components/schemas/BodyType'
+          nullable: true
+        fuelType:
+          $ref: '#/components/schemas/FuelType'
+          nullable: true
+        combinedMpg:
+          type: integer
+          nullable: true
+        marketValueCents:
+          type: integer
+          format: int64
+          nullable: true
+
+    BodyType:
+      type: string
+      enum: [SEDAN, SUV, TRUCK, COUPE, HATCHBACK, VAN, CONVERTIBLE, WAGON, OTHER]
+
+    FuelType:
+      type: string
+      enum: [GAS, HYBRID, PLUGIN_HYBRID, ELECTRIC, DIESEL, OTHER]
 
     CreateVehicleRequest:
       type: object
@@ -1475,6 +1655,21 @@ components:
           minimum: 0
         status:
           $ref: '#/components/schemas/VehicleStatus'
+        bodyType:
+          $ref: '#/components/schemas/BodyType'
+          nullable: true
+        fuelType:
+          $ref: '#/components/schemas/FuelType'
+          nullable: true
+        combinedMpg:
+          type: integer
+          minimum: 0
+          nullable: true
+        marketValueCents:
+          type: integer
+          format: int64
+          minimum: 0
+          nullable: true
 
     InventoryUploadRequest:
       type: object
@@ -1542,6 +1737,21 @@ components:
           minimum: 0
         status:
           $ref: '#/components/schemas/VehicleStatus'
+        bodyType:
+          $ref: '#/components/schemas/BodyType'
+          nullable: true
+        fuelType:
+          $ref: '#/components/schemas/FuelType'
+          nullable: true
+        combinedMpg:
+          type: integer
+          minimum: 0
+          nullable: true
+        marketValueCents:
+          type: integer
+          format: int64
+          minimum: 0
+          nullable: true
 
     InventoryUploadResponse:
       type: object
@@ -2651,3 +2861,87 @@ components:
         - ADMIN
         - DEALER
         - BUYER
+
+    AddFavoriteRequest:
+      type: object
+      required: [vehicleId]
+      properties:
+        vehicleId:
+          type: integer
+          format: int64
+
+    Favorite:
+      type: object
+      required: [id, vehicleId, vehicle, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        vehicleId:
+          type: integer
+          format: int64
+        vehicle:
+          $ref: '#/components/schemas/Vehicle'
+        createdAt:
+          type: string
+          format: date-time
+
+    SavedSearchQuery:
+      type: object
+      properties:
+        q:
+          type: string
+          nullable: true
+        make:
+          type: string
+          nullable: true
+        model:
+          type: string
+          nullable: true
+        minPrice:
+          type: number
+          format: double
+          nullable: true
+        maxPrice:
+          type: number
+          format: double
+          nullable: true
+        minYear:
+          type: integer
+          nullable: true
+        maxMileage:
+          type: integer
+          nullable: true
+        status:
+          $ref: '#/components/schemas/VehicleStatus'
+          nullable: true
+
+    SavedSearchInput:
+      type: object
+      required: [name, alertOnPriceDrop]
+      properties:
+        name:
+          type: string
+        query:
+          $ref: '#/components/schemas/SavedSearchQuery'
+        alertOnPriceDrop:
+          type: boolean
+
+    SavedSearch:
+      type: object
+      required: [id, name, alertOnPriceDrop, createdAt, lastMatchedCount]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        query:
+          $ref: '#/components/schemas/SavedSearchQuery'
+        alertOnPriceDrop:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        lastMatchedCount:
+          type: integer
